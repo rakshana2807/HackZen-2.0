@@ -95,16 +95,49 @@ VisionHack ADAS employs **YOLOv8n** (Ultralytics), a state-of-the-art anchor-fre
 
 ---
 
-## 6. Experimental Observations
+## 6. Experimental Evaluation and Results
 
-Evaluated on synthetic benchmark road scenes:
+### 6.1 Evaluation Method
 
-| Test Scene | Enhancement Pipeline | Mean Luminance | RMS Contrast | Laplacian Var | YOLOv8 Status |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Dark Night Scene** | None (Raw) | 26.4 | 14.8 | 32.1 | Low confidence |
-| **Dark Night Scene** | Combined Low-Light ($\gamma=1.5$, CLAHE) | 74.2 | 42.6 | 184.5 | High confidence |
-| **Simulated Fog** | None (Raw) | 168.3 | 21.2 | 18.4 | Hazy / attenuated |
-| **Simulated Fog** | LAB CLAHE ($\text{clip}=2.5$) | 154.0 | 48.9 | 112.7 | Recovered edges |
+The prototype was evaluated across clear, low-light, and simulated-fog road-scene images using the synthetic test generator (`generate_samples.py`) for repeatable functional testing. These scenes demonstrate pipeline operation and metric stability under controlled conditions, serving as a functional evaluation rather than an exhaustive real-world road-image benchmark.
+
+For each test scenario:
+1. The original image's mean luminance, RMS contrast, Laplacian variance, dark-pixel ratio, and saturated-pixel ratio were measured.
+2. The selected enhancement pipeline was executed with exact processing time recorded.
+3. The identical metrics were calculated for the enhanced output.
+4. Ultralytics YOLOv8n object detection was executed on both inputs at a confidence threshold of 0.20.
+5. Detected classes, confidence scores, latencies, and observed behavior were logged.
+
+### 6.2 Recorded Empirical Results
+
+The following values were populated directly from live runs of the application pipeline on the test scenes:
+
+| Evaluation Scenario | Pipeline / Condition | Mean Luminance | RMS Contrast | Laplacian Var (Sharpness) | Dark Pixels (<30) | Processing Time | Detections & Confidence |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Low-Light Road** | Original (Raw Input) | 24.59 | 11.81 | 31.82 | 69.35% | — | 1 detection: `stop sign` (conf: 25.1%) |
+| **Low-Light Road** | Combined Low-Light ($\gamma=1.5$, CLAHE) | 55.83 | 17.11 | 32.60 | 0.00% | 175.9 ms | 0 detections above 0.20 threshold |
+| **Simulated Fog Road** | Original (Raw Input) | 150.22 | 45.33 | 51.53 | 0.00% | — | 0 detections |
+| **Simulated Fog Road** | LAB CLAHE ($\text{clip}=2.5$) | 151.01 | 43.88 | 69.16 | 0.00% | 7.36 ms | 0 detections |
+| **Clear Day Road** | Original (Raw Input) | 125.97 | 58.68 | 112.36 | 0.55% | — | Baseline benchmark |
+
+#### Additional Pipeline Measurements:
+- **Video Processing Performance**: 30 frames processed in ~1.5 seconds (~20.0 FPS) with full frame-by-frame enhancement, YOLO inference, and MP4 re-encoding.
+- **Automated Test Suite**: 11 passed, 0 failed across 3 test suites (`test_detection.py`, `test_enhancement.py`, `test_metrics.py`).
+- **Claimed Improvements**: No verified detection-accuracy improvement or real-world visibility improvement is claimed at this stage.
+
+### 6.3 Interpretation & Scientific Limitations
+
+1. **Luminance and Dynamic Range Expansion**:
+   Gamma correction effectively brightened underexposed shadow regions (mean luminance rose from 24.59 to 55.83, eliminating the 69.35% dark-pixel clipping). CLAHE enhanced local high-frequency gradients in simulated fog, increasing Laplacian variance from 51.53 to 69.16.
+
+2. **Divergence Between Enhancement and Detection**:
+   Changes in image-quality metrics do not automatically demonstrate improved object detection. In the low-light test scene, brightening eliminated an ambiguous edge artifact that had previously produced a low-confidence false detection (`stop sign` at 25.1%). In synthetic scenes lacking photorealistic texture distributions, enhancement modifies spatial gradients without guaranteeing higher neural recall.
+
+3. **Artifacts and Noise Amplification**:
+   Aggressive non-linear stretching can amplify sensor noise, quantization banding, and atmospheric halo artifacts. Detection models must be rigorously evaluated on annotated ground-truth datasets (e.g., BDD100K, ExDark, Foggy Cityscapes) using standardized metrics such as Precision, Recall, and mean Average Precision (mAP@50, mAP@50:95).
+
+4. **Educational & Experimental Prototype**:
+   The prototype is intended strictly for educational and experimental evaluation. It has not been validated or certified for real-world driver assistance or safety-critical vehicular deployment.
 
 ---
 
