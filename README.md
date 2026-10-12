@@ -103,11 +103,15 @@ python -m streamlit run app.py
 ```
 Open your browser to `http://localhost:8501`.
 
-### 2. Generate Sample Media (Optional)
-Pre-generated samples are included, but you can regenerate them anytime:
+### 2. Generate Sample Media
+
+Sample images and a short demonstration video can be generated locally using the included script:
+
 ```bash
 python generate_samples.py
 ```
+
+This creates synthetic daylight, low-light, and simulated-fog road scenes, along with a short video clip, in the `samples/` directory. These are demonstration assets, not real-world road footage.
 
 ### 3. Run Automated Tests
 Execute the full test suite with `pytest`:
