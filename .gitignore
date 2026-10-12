@@ -1,0 +1,31 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest / Virtual Environment
+.pytest_cache/
+.env
+.venv
+env/
+venv/
+ENV/
+
+# YOLO & Model Weights
+*.pt
+*.onnx
+*.engine
+yolov8*.pt
+runs/
+
+# User outputs & temporary files
+outputs/*
+!outputs/.gitkeep
+temp/
+*.mp4
+*.avi
+*.mov
+
+# IDE
+.vscode/
+.idea/
