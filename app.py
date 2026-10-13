@@ -237,8 +237,25 @@ h2 {
     color: #cbd5e1 !important;
     font-size: 0.88rem !important;
 }
+
+/* Completely remove top Streamlit Header Bar, Decoration & Blank Margin */
+header[data-testid="stHeader"],
+div[data-testid="stDecoration"],
+[data-testid="stHeader"] {
+    display: none !important;
+    height: 0px !important;
+    visibility: hidden !important;
+}
 div[data-testid="stToolbar"] {
-    visibility: hidden;
+    visibility: hidden !important;
+    display: none !important;
+}
+.main .block-container,
+[data-testid="stAppViewBlockContainer"],
+.block-container {
+    padding-top: 0.5rem !important;
+    padding-bottom: 2rem !important;
+    margin-top: 0px !important;
 }
 </style>
 """
@@ -397,13 +414,6 @@ with st.sidebar:
 # PAGE 1: OVERVIEW
 # ==========================================
 if selected_page == "📊 Overview":
-    st.markdown("""
-    <div class='notice-box'>
-        <strong>Automotive Research Prototype:</strong> This software incorporates 5 state-of-the-art vision pipelines with strict decoupled lazy loading.
-        All statistical metrics and detections reflect real execution without fabricated benchmark results.
-    </div>
-    """, unsafe_allow_html=True)
-
     c1, c2 = st.columns([3, 2])
     with c1:
         st.markdown("""
