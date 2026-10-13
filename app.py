@@ -238,22 +238,43 @@ h2 {
     font-size: 0.88rem !important;
 }
 
-/* Completely remove top Streamlit Header Bar, Decoration & Blank Margin */
-header[data-testid="stHeader"],
-div[data-testid="stDecoration"],
-[data-testid="stHeader"] {
+/* Transparent top Streamlit Header Bar (keeps sidebar collapse/expand toggle visible) */
+header[data-testid="stHeader"] {
+    background: transparent !important;
+    color: #f8fafc !important;
+    z-index: 100 !important;
+}
+
+/* Hide Deploy button and Streamlit toolbar / hamburger menu */
+header[data-testid="stHeader"] .stAppDeployButton,
+header[data-testid="stHeader"] [data-testid="stToolbar"],
+header[data-testid="stHeader"] #MainMenu,
+div[data-testid="stDecoration"] {
     display: none !important;
-    height: 0px !important;
     visibility: hidden !important;
 }
-div[data-testid="stToolbar"] {
-    visibility: hidden !important;
-    display: none !important;
+
+/* Ensure sidebar and its toggle button are always visible and accessible */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
+button[kind="header"] {
+    visibility: visible !important;
+    display: inline-flex !important;
+    color: #38bdf8 !important;
+    background: rgba(15, 23, 42, 0.6) !important;
+    border: 1px solid rgba(56, 189, 248, 0.2) !important;
+    border-radius: 8px !important;
 }
+
+[data-testid="stSidebar"] {
+    visibility: visible !important;
+    display: block !important;
+}
+
 .main .block-container,
 [data-testid="stAppViewBlockContainer"],
 .block-container {
-    padding-top: 0.5rem !important;
+    padding-top: 1.5rem !important;
     padding-bottom: 2rem !important;
     margin-top: 0px !important;
 }
