@@ -130,6 +130,20 @@ python -m pytest tests/ -v
 
 ---
 
+## 📊 Feature Implementation & Validation Matrix
+
+| Component / Feature | Implementation State | Verification Status | Model Weights / Resource Req. |
+| :--- | :--- | :--- | :--- |
+| **OpenCV Classical Enhancement** | ✅ Fully Implemented | ✅ 100% Tested & Verified | None (pure OpenCV/NumPy) |
+| **YOLOv8n Object Detection** | ✅ Fully Implemented | ✅ 100% Tested & Verified | `yolov8n.pt` (~6.2MB, auto-cached) |
+| **Original vs. Enhanced Comparison** | ✅ Fully Implemented | ✅ 100% Tested & Verified | None (runs in-memory) |
+| **ByteTrack Video Tracking & Trails**| ✅ Fully Implemented | ✅ 100% Tested & Verified | Integrated via Ultralytics ByteTrack |
+| **DINOv2 Visual Scene Retrieval**    | ✅ Fully Implemented | ✅ Tested (Index/Search/Empty) | Optional `dinov2_vits14` (~80MB on-demand) |
+| **MobileSAM Instance Segmentation**  | ✅ Fully Implemented | ✅ Tested (Geometry/Labels) | Optional `mobile_sam.pt` (~39MB on-demand) |
+| **Diffusion Image Restoration**      | ✅ Fully Implemented | ✅ Tested (Diagnostics/Fallback)| Optional `requirements-optional.txt` (~3.5GB) |
+
+---
+
 ## 🧭 Hackathon Demo Walkthrough
 
 1. **Dashboard Overview**: Start on the overview tab to introduce the problem space: sensor degradation in night and adverse road scenarios.

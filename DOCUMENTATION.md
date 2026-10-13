@@ -131,7 +131,7 @@ The following values were populated directly from live runs of the application p
 
 #### Additional Pipeline Measurements:
 - **Video Processing Performance**: 30 frames processed in ~1.5 seconds (~20.0 FPS) with full frame-by-frame enhancement, YOLO inference, and MP4 re-encoding.
-- **Automated Test Suite**: 11 passed, 0 failed across 3 test suites (`test_detection.py`, `test_enhancement.py`, `test_metrics.py`).
+- **Automated Test Suite**: 18 passed, 0 failed across 5 test suites (`test_detection.py`, `test_enhancement.py`, `test_metrics.py`, `test_comparison_and_video.py`, `test_advanced_vision.py`).
 - **Claimed Improvements**: No verified detection-accuracy improvement or real-world visibility improvement is claimed at this stage.
 
 ### 6.3 Interpretation & Scientific Limitations

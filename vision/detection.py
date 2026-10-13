@@ -140,7 +140,7 @@ class ObjectDetector:
 
             # Experimental Image-Space Proximity Heuristic (Explicitly NOT Physical Metres)
             # A larger bbox occupying a significant lower-half viewport implies visual proximity
-            if relative_area_pct > 12.0 or y2 > (h * 0.85 and relative_area_pct > 6.0):
+            if relative_area_pct > 12.0 or (y2 > (h * 0.85) and relative_area_pct > 6.0):
                 proximity = "Immediate Proximity (Visual Heuristic)"
             elif relative_area_pct > 3.0:
                 proximity = "Mid-Field (Visual Heuristic)"

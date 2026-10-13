@@ -95,15 +95,20 @@ class DiffusionRestorer:
         # Real inference with diffusers
         try:
             from PIL import Image
+            orig_h, orig_w = img.shape[:2]
             rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(rgb)
 
-            # Resize if necessary to model constraints
-            pil_img = pil_img.resize((256, 256))
+            # Preserve aspect ratio: scale so longest side is 256 or 512, adhering to diffusion constraints
+            max_side = 256
+            scale = max_side / max(orig_w, orig_h)
+            target_w = max(64, int((orig_w * scale) // 8 * 8))
+            target_h = max(64, int((orig_h * scale) // 8 * 8))
+            pil_img_resized = pil_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
             result = self.pipe(
                 prompt=prompt,
-                image=pil_img,
+                image=pil_img_resized,
                 num_inference_steps=num_inference_steps
             ).images[0]
 
@@ -113,8 +118,11 @@ class DiffusionRestorer:
             return out_bgr, {
                 "status": "success",
                 "model_id": self.model_id,
+                "intended_use": "Super-resolution and text-guided detail synthesis (NOT calibrated physical dehazing/dehaze removal)",
                 "prompt": prompt,
                 "steps": num_inference_steps,
+                "input_dimensions": f"{orig_w}x{orig_h}",
+                "output_dimensions": f"{out_bgr.shape[1]}x{out_bgr.shape[0]}",
                 "is_simulated": False
             }
         except Exception as e:

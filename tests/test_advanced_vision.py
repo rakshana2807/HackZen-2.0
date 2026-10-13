@@ -32,7 +32,8 @@ def test_tracker_initialization_and_formatting():
 
 
 def test_retrieval_empty_index_and_normalization():
-    engine = SceneRetrievalEngine(index_path="samples/test_temp_index.json")
+    temp_index = "samples/test_temp_index.json"
+    engine = SceneRetrievalEngine(index_path=temp_index)
     # Clean state
     engine.gallery = []
     assert len(engine.gallery) == 0
@@ -51,9 +52,15 @@ def test_retrieval_empty_index_and_normalization():
     assert abs(sim_identical - 1.0) < 1e-5
     assert abs(sim_orthogonal - 0.0) < 1e-5
 
+    # Test corrupted index recovery
+    with open(temp_index, "w") as f:
+        f.write("{invalid-json-content: corrupt")
+    engine_corrupt = SceneRetrievalEngine(index_path=temp_index)
+    assert engine_corrupt.gallery == []
+
     # Clean up test index if created
-    if os.path.exists("samples/test_temp_index.json"):
-        os.remove("samples/test_temp_index.json")
+    if os.path.exists(temp_index):
+        os.remove(temp_index)
 
 
 def test_segmenter_initialization_and_geometry():

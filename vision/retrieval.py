@@ -87,19 +87,45 @@ class SceneRetrievalEngine:
         return emb
 
     def _load_index(self) -> None:
-        """Load pre-indexed embeddings from JSON if available."""
+        """Load pre-indexed embeddings from JSON if available and validate entries."""
         if os.path.exists(self.index_path):
             try:
                 with open(self.index_path, "r", encoding="utf-8") as f:
-                    self.gallery = json.load(f)
+                    data = json.load(f)
+                valid_entries = []
+                if isinstance(data, list):
+                    for item in data:
+                        # Validate schema, embedding dimensions, and file existence
+                        if (
+                            isinstance(item, dict)
+                            and "path" in item
+                            and "embedding" in item
+                            and isinstance(item["embedding"], list)
+                            and len(item["embedding"]) == 384
+                            and os.path.exists(item["path"])
+                        ):
+                            valid_entries.append(item)
+                self.gallery = valid_entries
             except Exception:
                 self.gallery = []
+        else:
+            self.gallery = []
 
     def save_index(self) -> None:
         """Save indexed embeddings to disk."""
         os.makedirs(os.path.dirname(self.index_path) or ".", exist_ok=True)
         with open(self.index_path, "w", encoding="utf-8") as f:
-            json.dump(self.gallery, f)
+            json.dump(self.gallery, f, indent=2)
+
+    def rebuild_index(self, directory: str = "samples") -> int:
+        """Clear existing index and completely rebuild from target directory."""
+        self.gallery = []
+        if os.path.exists(self.index_path):
+            try:
+                os.remove(self.index_path)
+            except OSError:
+                pass
+        return self.build_index_from_directory(directory)
 
     def add_image_to_index(self, image_path: str) -> bool:
         """Extract embedding and add image to local gallery."""
@@ -115,6 +141,10 @@ class SceneRetrievalEngine:
                 return True
 
         emb = self.extract_embedding(img)
+        # Validate embedding shape
+        if emb.shape[0] != 384 or not np.isfinite(emb).all():
+            return False
+
         self.gallery.append({
             "path": image_path,
             "name": os.path.basename(image_path),
@@ -124,12 +154,12 @@ class SceneRetrievalEngine:
         return True
 
     def build_index_from_directory(self, directory: str = "samples") -> int:
-        """Scan a folder and index all image files."""
+        """Scan a folder and index all valid image files."""
         if not os.path.exists(directory):
             return 0
         valid_exts = {".jpg", ".jpeg", ".png"}
         indexed_count = 0
-        for fname in os.listdir(directory):
+        for fname in sorted(os.listdir(directory)):
             ext = os.path.splitext(fname)[1].lower()
             if ext in valid_exts:
                 fpath = os.path.join(directory, fname)

@@ -276,19 +276,24 @@ with st.sidebar:
     # ByteTrack
     st.markdown("<span class='status-pill'>● ByteTrack Ready</span>", unsafe_allow_html=True)
 
-    # DINOv2
-    retrieval_engine = get_retrieval_engine()
-    dino_status = "● DINOv2 Ready" if retrieval_engine.is_model_loaded else "○ DINOv2 (On-Demand)"
+    # DINOv2 Status
+    dino_loaded = "retrieval_engine" in st.session_state and st.session_state["retrieval_engine"].is_model_loaded
+    dino_status = "● DINOv2 Active" if dino_loaded else "○ DINOv2 (On-Demand)"
     st.markdown(f"<span class='status-pill-amber'>{dino_status}</span>", unsafe_allow_html=True)
 
-    # SAM
-    segmenter = get_segmenter()
-    sam_status = "● MobileSAM Ready" if segmenter.is_ready else "○ MobileSAM (On-Demand)"
+    # SAM Status
+    sam_loaded = "segmenter" in st.session_state and st.session_state["segmenter"].is_ready
+    sam_status = "● MobileSAM Active" if sam_loaded else "○ MobileSAM (On-Demand)"
     st.markdown(f"<span class='status-pill-amber'>{sam_status}</span>", unsafe_allow_html=True)
 
-    # Diffusion
-    restorer = get_restorer()
-    diff_status = "● Diffusion Ready" if restorer.is_available else "○ Diffusion (Optional)"
+    # Diffusion Status
+    has_diff = os.path.exists(".venv/Lib/site-packages/diffusers") or False
+    try:
+        import diffusers
+        has_diff = True
+    except ImportError:
+        has_diff = False
+    diff_status = "● Diffusion Available" if has_diff else "○ Diffusion (Optional)"
     st.markdown(f"<span class='status-pill-amber'>{diff_status}</span>", unsafe_allow_html=True)
 
     st.divider()
@@ -534,6 +539,7 @@ elif selected_page == "🔍 DINOv2 Visual Scene Search":
     """, unsafe_allow_html=True)
 
     engine = get_retrieval_engine()
+    st.session_state["retrieval_engine"] = engine
 
     col_idx, col_query = st.columns([1, 2])
     with col_idx:
@@ -541,10 +547,17 @@ elif selected_page == "🔍 DINOv2 Visual Scene Search":
         st.markdown("<div class='adas-card-title'>🗂️ Gallery Index</div>", unsafe_allow_html=True)
         st.write(f"Currently Indexed Scenes: **{len(engine.gallery)}**")
 
-        if st.button("🔄 Index / Rebuild Gallery from samples/"):
-            with st.spinner("Extracting DINOv2 embeddings for samples..."):
-                cnt = engine.build_index_from_directory("samples")
-                st.success(f"Indexed {cnt} scenes from samples/ folder!")
+        c_b1, c_b2 = st.columns(2)
+        with c_b1:
+            if st.button("➕ Index New Scenes"):
+                with st.spinner("Extracting DINOv2 embeddings for samples..."):
+                    cnt = engine.build_index_from_directory("samples")
+                    st.success(f"Indexed {cnt} scenes from samples/ folder!")
+        with c_b2:
+            if st.button("🔄 Full Rebuild"):
+                with st.spinner("Clearing and rebuilding gallery index..."):
+                    cnt = engine.rebuild_index("samples")
+                    st.success(f"Rebuilt index with {cnt} scenes!")
 
         if engine.gallery:
             st.caption("Indexed files:")

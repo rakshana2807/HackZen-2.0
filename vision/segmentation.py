@@ -120,13 +120,37 @@ class Segmenter:
             area_px = int(np.sum(mask_bool))
             area_pct = round((area_px / total_pixels) * 100.0, 2)
 
-            # Associate label if provided
-            if detection_labels and i < len(detection_labels):
-                label = detection_labels[i]
-            else:
-                label = f"Mask #{i+1}"
+            # Associate label and box only when spatial correspondence is genuinely valid
+            label = f"Mask #{i+1}"
+            assigned_box = None
 
-            box = bboxes[i] if (bboxes and i < len(bboxes)) else None
+            if bboxes and detection_labels and i < len(bboxes) and i < len(detection_labels):
+                prompt_box = bboxes[i]
+                # Validate spatial correspondence: check if mask pixels fall inside or near prompt box
+                y_idx, x_idx = np.where(mask_bool)
+                if len(x_idx) > 0 and len(y_idx) > 0:
+                    mx1, mx2 = int(np.min(x_idx)), int(np.max(x_idx))
+                    my1, my2 = int(np.min(y_idx)), int(np.max(y_idx))
+                    px1, py1, px2, py2 = prompt_box
+
+                    # Calculate Intersection over Union (IoU) of bounding boxes
+                    ix1 = max(mx1, px1)
+                    iy1 = max(my1, py1)
+                    ix2 = min(mx2, px2)
+                    iy2 = min(my2, py2)
+                    inter_area = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                    mask_box_area = max(1, (mx2 - mx1) * (my2 - my1))
+                    prompt_box_area = max(1, (px2 - px1) * (py2 - py1))
+                    iou = inter_area / float(mask_box_area + prompt_box_area - inter_area)
+
+                    # Only link detection label if significant spatial correspondence exists
+                    if iou > 0.2 or (inter_area / mask_box_area) > 0.5:
+                        label = detection_labels[i]
+                        assigned_box = prompt_box
+                    else:
+                        label = f"Mask #{i+1} (Unassociated)"
+                else:
+                    label = f"Mask #{i+1} (Empty)"
 
             segmentations.append({
                 "mask_id": i + 1,
@@ -134,7 +158,7 @@ class Segmenter:
                 "mask": mask_bool,
                 "area_px": area_px,
                 "area_pct": area_pct,
-                "box": box
+                "box": assigned_box
             })
 
         return segmentations
