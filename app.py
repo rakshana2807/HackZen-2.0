@@ -398,26 +398,6 @@ with st.sidebar:
 # ==========================================
 if selected_page == "📊 Overview":
     st.markdown("""
-    <div style="background: linear-gradient(135deg, rgba(14, 165, 233, 0.15) 0%, rgba(13, 148, 136, 0.1) 100%); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 16px; padding: 28px; margin-bottom: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.4);">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-            <div>
-                <span class="status-pill" style="margin-bottom:12px;">● Automotive Edge Perception Suite</span>
-                <h1 style="margin: 8px 0 6px 0; font-size:2.2rem; font-weight:800; letter-spacing:-0.03em; color:#f8fafc;">VisionHack ADAS Cockpit</h1>
-                <p style="color:#94a3b8; font-size:1.05rem; margin:0; max-width:760px; line-height:1.5;">
-                    Real-time atmospheric visibility enhancement, multi-modal foundation models, and situational road scene understanding engineered for adverse driving environments.
-                </p>
-            </div>
-            <div style="display:flex; gap:10px; align-items:center;">
-                <div style="text-align:right;">
-                    <div style="font-size:0.75rem; color:#94a3b8; font-weight:600; text-transform:uppercase;">System Latency</div>
-                    <div style="font-family:'JetBrains Mono',monospace; font-size:1.4rem; font-weight:700; color:#38bdf8;">~22 ms <span style="font-size:0.8rem; color:#34d399;">(Edge)</span></div>
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
     <div class='notice-box'>
         <strong>Automotive Research Prototype:</strong> This software incorporates 5 state-of-the-art vision pipelines with strict decoupled lazy loading.
         All statistical metrics and detections reflect real execution without fabricated benchmark results.
