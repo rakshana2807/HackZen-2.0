@@ -238,14 +238,16 @@ h2 {
     font-size: 0.88rem !important;
 }
 
-/* Transparent top Streamlit Header Bar (keeps sidebar collapse/expand toggle visible) */
+/* Transparent top Streamlit Header Bar */
 header[data-testid="stHeader"] {
     background: transparent !important;
     color: #f8fafc !important;
-    z-index: 100 !important;
+    z-index: 99 !important;
+    height: 3rem !important;
+    pointer-events: none !important; /* Let clicks pass through except on interactive children */
 }
 
-/* Hide Deploy button and Streamlit toolbar / hamburger menu */
+/* Hide deploy button, hamburger menu and top decoration */
 header[data-testid="stHeader"] .stAppDeployButton,
 header[data-testid="stHeader"] [data-testid="stToolbar"],
 header[data-testid="stHeader"] #MainMenu,
@@ -254,27 +256,45 @@ div[data-testid="stDecoration"] {
     visibility: hidden !important;
 }
 
-/* Ensure sidebar and its toggle button are always visible and accessible */
+/* Ensure the sidebar open/close toggle buttons are ALWAYS clickable and styled */
 [data-testid="stSidebarCollapseButton"],
-[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+header[data-testid="stHeader"] button,
 button[kind="header"] {
+    pointer-events: auto !important;
     visibility: visible !important;
     display: inline-flex !important;
     color: #38bdf8 !important;
-    background: rgba(15, 23, 42, 0.6) !important;
-    border: 1px solid rgba(56, 189, 248, 0.2) !important;
+    background: rgba(15, 23, 42, 0.85) !important;
+    border: 1px solid rgba(56, 189, 248, 0.35) !important;
     border-radius: 8px !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+    z-index: 999999 !important;
 }
 
-[data-testid="stSidebar"] {
-    visibility: visible !important;
-    display: block !important;
+[data-testid="stSidebarCollapseButton"]:hover,
+[data-testid="collapsedControl"]:hover,
+[data-testid="stSidebarCollapsedControl"]:hover,
+button[kind="header"]:hover {
+    background: rgba(56, 189, 248, 0.2) !important;
+    border-color: #38bdf8 !important;
+    color: #ffffff !important;
+}
+
+/* Keep collapsed control button pinned at top left so it never disappears */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
+    position: fixed !important;
+    top: 0.75rem !important;
+    left: 0.75rem !important;
+    z-index: 999999 !important;
 }
 
 .main .block-container,
 [data-testid="stAppViewBlockContainer"],
 .block-container {
-    padding-top: 1.5rem !important;
+    padding-top: 2rem !important;
     padding-bottom: 2rem !important;
     margin-top: 0px !important;
 }
