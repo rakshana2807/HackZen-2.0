@@ -51,7 +51,11 @@ def test_comparison_logic():
     delta_brightness = m_enh["mean_luminance"] - m_orig["mean_luminance"]
     assert delta_brightness > 0.0
 
-    detector = ObjectDetector("yolov8n.pt")
+    detector = ObjectDetector("yolov8n.pt", lazy_load=True)
+    # Mock detect output to guarantee offline execution without downloading weights
+    detector.detect = lambda img, conf_threshold=0.25, allowed_classes=None: [
+        {"box": [10, 10, 50, 50], "confidence": 0.8, "class_name": "car", "class_id": 2, "relative_area_pct": 2.0, "proximity_heuristic": "Far"}
+    ]
     dets_orig = detector.detect(dark_img, conf_threshold=0.25)
     dets_enh = detector.detect(enhanced_img, conf_threshold=0.25)
 
@@ -59,6 +63,82 @@ def test_comparison_logic():
     assert isinstance(dets_enh, list)
     diff_count = len(dets_enh) - len(dets_orig)
     assert isinstance(diff_count, int)
+    assert diff_count == 0
+
+
+def test_video_tracking_application_pipeline(tmp_path):
+    """Verify the real application tracking video export path: reading, tracking, writing, and reopening."""
+    # 1. Create a synthetic test video
+    input_video_path = str(tmp_path / "app_source.mp4")
+    out_tracked_path = str(tmp_path / "app_tracked_export.mp4")
+    w, h, fps = 120, 80, 10
+    total_frames = 6
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    writer = cv2.VideoWriter(input_video_path, fourcc, fps, (w, h))
+    if not writer.isOpened():
+        pytest.skip("mp4v encoder not available in this environment")
+
+    for i in range(total_frames):
+        f = np.full((h, w, 3), i * 35, dtype=np.uint8)
+        # Draw moving circle
+        cv2.circle(f, (20 + i * 15, 40), 10, (255, 255, 255), -1)
+        writer.write(f)
+    writer.release()
+
+    # 2. Simulate application tracking export loop
+    from vision.tracking import ObjectTracker
+    tracker = ObjectTracker(model_name="yolov8n.pt", lazy_load=True)
+    tracker.reset_tracks()
+
+    # Mock tracking inference
+    def mock_track_frame(frame, conf_threshold=0.25, allowed_classes=None):
+        return [{
+            "track_id": 1,
+            "box": [20, 30, 40, 50],
+            "confidence": 0.85,
+            "class_id": 2,
+            "class_name": "car",
+            "trail": [(30, 40)]
+        }]
+    tracker.track_frame = mock_track_frame
+
+    cap = cv2.VideoCapture(input_video_path)
+    assert cap.isOpened()
+
+    out_writer = cv2.VideoWriter(out_tracked_path, fourcc, fps, (w, h))
+    assert out_writer.isOpened()
+
+    processed_frames = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        tracks = tracker.track_frame(frame)
+        annotated = tracker.draw_tracking_annotations(frame, tracks, draw_trails=True)
+        assert annotated.shape == (h, w, 3)
+        out_writer.write(annotated)
+        processed_frames += 1
+
+    cap.release()
+    out_writer.release()
+
+    assert processed_frames == total_frames
+    assert os.path.exists(out_tracked_path)
+    assert os.path.getsize(out_tracked_path) > 0
+
+    # 3. Verify exported file can be reopened and read
+    check_cap = cv2.VideoCapture(out_tracked_path)
+    assert check_cap.isOpened()
+    read_count = 0
+    while True:
+        ret, frame = check_cap.read()
+        if not ret:
+            break
+        read_count += 1
+    check_cap.release()
+    assert read_count == total_frames
+
 
 
 def test_video_generator_and_frame_sampling():

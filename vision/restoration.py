@@ -75,14 +75,49 @@ class DiffusionRestorer:
         self,
         image_bgr: np.ndarray,
         prompt: str = "clear high-contrast road scene daylight, sharp highway markings",
-        num_inference_steps: int = 15
+        num_inference_steps: int = 15,
+        match_input_resolution: bool = True
     ) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
         """Perform diffusion-based image restoration.
 
         Does NOT pretend to run diffusion if the model is not loaded; returns
         detailed diagnostics and leaves the rest of the application functional.
+
+        Args:
+            image_bgr: Input BGR image array.
+            prompt: Text prompt guiding generative texture prior.
+            num_inference_steps: Number of diffusion denoising steps (must be >= 1).
+            match_input_resolution: If True, bicubic resizes the upscaled output
+                back to original (w, h) so dimensions remain consistent for downstream evaluation.
+
+        Returns:
+            Tuple of (restored_bgr_image, metadata_dict).
         """
-        img = validate_image(image_bgr)
+        if not isinstance(prompt, str) or not prompt.strip():
+            return None, {
+                "status": "failed",
+                "error": "Prompt must be a non-empty string.",
+                "model_id": self.model_id,
+                "is_simulated": False
+            }
+
+        if not isinstance(num_inference_steps, int) or num_inference_steps < 1:
+            return None, {
+                "status": "failed",
+                "error": "num_inference_steps must be a positive integer >= 1.",
+                "model_id": self.model_id,
+                "is_simulated": False
+            }
+
+        try:
+            img = validate_image(image_bgr)
+        except Exception as e:
+            return None, {
+                "status": "failed",
+                "error": f"Invalid input image: {str(e)}",
+                "model_id": self.model_id,
+                "is_simulated": False
+            }
 
         if not self.load_pipeline():
             return None, {
@@ -99,7 +134,7 @@ class DiffusionRestorer:
             rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(rgb)
 
-            # Preserve aspect ratio: scale so longest side is 256 or 512, adhering to diffusion constraints
+            # Preserve aspect ratio: scale so longest side is 256, adhering to diffusion memory constraints
             max_side = 256
             scale = max_side / max(orig_w, orig_h)
             target_w = max(64, int((orig_w * scale) // 8 * 8))
@@ -107,7 +142,7 @@ class DiffusionRestorer:
             pil_img_resized = pil_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
             result = self.pipe(
-                prompt=prompt,
+                prompt=prompt.strip(),
                 image=pil_img_resized,
                 num_inference_steps=num_inference_steps
             ).images[0]
@@ -115,14 +150,23 @@ class DiffusionRestorer:
             out_rgb = np.array(result)
             out_bgr = cv2.cvtColor(out_rgb, cv2.COLOR_RGB2BGR)
 
-            return out_bgr, {
+            raw_out_h, raw_out_w = out_bgr.shape[:2]
+            if match_input_resolution and (raw_out_w != orig_w or raw_out_h != orig_h):
+                final_out = cv2.resize(out_bgr, (orig_w, orig_h), interpolation=cv2.INTER_LANCZOS4)
+                res_strategy = f"Upscaled to {raw_out_w}x{raw_out_h}, then rescaled to original {orig_w}x{orig_h} (match_input_resolution=True)"
+            else:
+                final_out = out_bgr
+                res_strategy = f"Direct generative output dimensions: {raw_out_w}x{raw_out_h}"
+
+            return final_out, {
                 "status": "success",
                 "model_id": self.model_id,
                 "intended_use": "Super-resolution and text-guided detail synthesis (NOT calibrated physical dehazing/dehaze removal)",
                 "prompt": prompt,
                 "steps": num_inference_steps,
                 "input_dimensions": f"{orig_w}x{orig_h}",
-                "output_dimensions": f"{out_bgr.shape[1]}x{out_bgr.shape[0]}",
+                "output_dimensions": f"{final_out.shape[1]}x{final_out.shape[0]}",
+                "resolution_strategy": res_strategy,
                 "is_simulated": False
             }
         except Exception as e:

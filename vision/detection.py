@@ -38,27 +38,40 @@ CLASS_COLORS = {
 class ObjectDetector:
     """Wrapper around Ultralytics YOLO for ADAS detection and visualization."""
 
-    def __init__(self, model_name: str = "yolov8n.pt"):
-        """Initialize YOLO model.
+    def __init__(self, model_name: str = "yolov8n.pt", lazy_load: bool = True):
+        """Initialize YOLO detector wrapper.
 
-        Weights are loaded from local disk or automatically downloaded by Ultralytics.
+        Args:
+            model_name: Path or identifier of the YOLO weights.
+            lazy_load: If True, defer model weights loading until first inference.
         """
         self.model_name = model_name
         self.model: Optional[YOLO] = None
         self._load_error: Optional[str] = None
-        self._load_model()
+        self._is_initialized: bool = False
+        if not lazy_load:
+            self._load_model()
 
-    def _load_model(self) -> None:
+    def _load_model(self) -> bool:
+        if self.model is not None:
+            return True
         try:
             self.model = YOLO(self.model_name)
             self._load_error = None
+            self._is_initialized = True
+            return True
         except Exception as e:
             self.model = None
             self._load_error = f"Failed to load model '{self.model_name}': {str(e)}"
+            self._is_initialized = False
+            return False
 
     @property
     def is_ready(self) -> bool:
-        return self.model is not None
+        if self.model is not None:
+            return True
+        # Check if local weights exist
+        return os.path.exists(self.model_name) or self.model is not None
 
     @property
     def error_message(self) -> Optional[str]:
@@ -96,7 +109,7 @@ class ObjectDetector:
                 "proximity_heuristic": str
             }
         """
-        if not self.is_ready:
+        if not self._load_model():
             raise RuntimeError(f"Detector is not initialized. Error: {self._load_error}")
 
         if image is None or image.size == 0:

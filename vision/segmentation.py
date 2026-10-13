@@ -143,52 +143,87 @@ class Segmenter:
             })
 
         # Calculate spatial overlap matrix between all masks and all detection boxes
-        # Do NOT assume i-th mask corresponds to i-th detection
-        matched_labels = {}
-        matched_boxes = {}
+        # Do NOT assume i-th mask corresponds to i-th detection or greedy mask iteration
+        matched_labels: Dict[int, str] = {}
+        matched_boxes: Dict[int, List[int]] = {}
 
         if bboxes and detection_labels and len(bboxes) > 0 and len(detection_labels) > 0:
-            assigned_det_indices = set()
+            # Pairwise candidates list: (score, mask_idx, det_idx, iou, pixel_overlap_ratio)
+            candidates = []
 
             for m_idx, m_ent in enumerate(mask_entries):
                 mbound = m_ent["mbound"]
-                if mbound is None or m_ent["area_px"] == 0:
+                mask_bool = m_ent["mask"]
+                mask_px = m_ent["area_px"]
+                if mbound is None or mask_px == 0:
                     continue
 
                 mx1, my1, mx2, my2 = mbound
                 mask_box_area = max(1, (mx2 - mx1) * (my2 - my1))
 
-                best_iou = 0.0
-                best_det_idx = -1
-
                 for d_idx, pbox in enumerate(bboxes):
-                    if d_idx in assigned_det_indices:
+                    if d_idx >= len(detection_labels):
+                        continue
+                    px1, py1, px2, py2 = pbox
+                    # Validate box coordinates
+                    if px2 <= px1 or py2 <= py1:
                         continue
 
-                    px1, py1, px2, py2 = pbox
+                    # 1. Bounding box intersection
                     ix1 = max(mx1, px1)
                     iy1 = max(my1, py1)
                     ix2 = min(mx2, px2)
                     iy2 = min(my2, py2)
 
-                    inter_area = max(0, ix2 - ix1) * max(0, iy2 - iy1)
-                    if inter_area == 0:
+                    inter_box_area = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                    if inter_box_area == 0:
                         continue
 
                     prompt_box_area = max(1, (px2 - px1) * (py2 - py1))
-                    iou = inter_area / float(mask_box_area + prompt_box_area - inter_area)
-                    overlap_ratio = inter_area / mask_box_area
+                    box_iou = inter_box_area / float(mask_box_area + prompt_box_area - inter_box_area)
 
-                    # Find best match above documented threshold (IoU > 0.25 or overlap > 0.5)
-                    score = max(iou, overlap_ratio * 0.8)
-                    if score > best_iou:
-                        best_iou = score
-                        best_det_idx = d_idx
+                    # 2. Pixel-level containment: count how many true mask pixels lie strictly inside the candidate bbox
+                    clamped_px1 = max(0, min(w, px1))
+                    clamped_py1 = max(0, min(h, py1))
+                    clamped_px2 = max(0, min(w, px2))
+                    clamped_py2 = max(0, min(h, py2))
 
-                if best_iou > 0.25 and best_det_idx >= 0 and best_det_idx < len(detection_labels):
-                    matched_labels[m_idx] = detection_labels[best_det_idx]
-                    matched_boxes[m_idx] = bboxes[best_det_idx]
-                    assigned_det_indices.add(best_det_idx)
+                    mask_sub = mask_bool[clamped_py1:clamped_py2, clamped_px1:clamped_px2]
+                    inside_px = int(np.sum(mask_sub))
+                    pixel_containment = inside_px / float(mask_px) if mask_px > 0 else 0.0
+
+                    # Combined composite score giving priority to both bounding alignment and pixel containment
+                    composite_score = 0.5 * box_iou + 0.5 * pixel_containment
+
+                    # Documented threshold: require at least 0.25 IoU or 0.40 pixel containment, composite >= 0.30
+                    if composite_score >= 0.30 and (box_iou >= 0.25 or pixel_containment >= 0.40):
+                        candidates.append((composite_score, m_idx, d_idx, box_iou, pixel_containment))
+
+            # Sort globally by composite score descending for optimal bipartite assignment
+            candidates.sort(key=lambda c: c[0], reverse=True)
+
+            assigned_masks: Set[int] = set()
+            assigned_dets: Set[int] = set()
+
+            # Second best tracking to reject ambiguous ties (difference < 0.05 between competing labels)
+            mask_scores: Dict[int, List[float]] = {}
+            for score, m_idx, d_idx, _, _ in candidates:
+                mask_scores.setdefault(m_idx, []).append(score)
+
+            for score, m_idx, d_idx, box_iou, pixel_containment in candidates:
+                if m_idx in assigned_masks or d_idx in assigned_dets:
+                    continue
+
+                # Ambiguity check: if another detection had a nearly identical score for this mask
+                scores_for_m = mask_scores.get(m_idx, [])
+                if len(scores_for_m) > 1 and abs(scores_for_m[0] - scores_for_m[1]) < 0.05 and scores_for_m[0] < 0.55:
+                    # Ambiguous match: label as generic to maintain integrity
+                    continue
+
+                matched_labels[m_idx] = detection_labels[d_idx]
+                matched_boxes[m_idx] = bboxes[d_idx]
+                assigned_masks.add(m_idx)
+                assigned_dets.add(d_idx)
 
         segmentations: List[Dict[str, Any]] = []
         for m_idx, m_ent in enumerate(mask_entries):
@@ -197,7 +232,7 @@ class Segmenter:
             elif m_idx in matched_labels:
                 label = matched_labels[m_idx]
             else:
-                label = f"Mask #{m_ent['mask_id']}"
+                label = f"Mask #{m_ent['mask_id']} (Generic / Unassociated)"
 
             segmentations.append({
                 "mask_id": m_ent["mask_id"],

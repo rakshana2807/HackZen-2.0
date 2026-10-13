@@ -12,14 +12,36 @@ from vision.restoration import DiffusionRestorer
 
 
 def test_tracker_initialization_and_formatting():
-    tracker = ObjectTracker(model_name="yolov8n.pt")
-    assert tracker.is_ready is True
-    assert tracker.error_message is None
+    """Verify tracker initialization, trail formatting, and reset without requiring weights."""
+    tracker = ObjectTracker(model_name="yolov8n.pt", lazy_load=True)
 
-    # Track on blank frame
+    # Mock YOLO track call
+    class MockBox:
+        def __init__(self, track_id, cls_id, conf, xyxy):
+            import torch
+            self.id = torch.tensor([track_id]) if track_id is not None else None
+            self.cls = torch.tensor([cls_id])
+            self.conf = torch.tensor([conf])
+            self.xyxy = torch.tensor([xyxy])
+
+    class MockResult:
+        def __init__(self, boxes):
+            self.boxes = boxes
+
+    class MockTrackYOLO:
+        names = {0: "person", 2: "car"}
+        def track(self, source, persist=True, tracker="bytetrack.yaml", conf=0.25, verbose=False):
+            b1 = MockBox(track_id=101, cls_id=2, conf=0.92, xyxy=[50, 50, 150, 150])
+            return [MockResult([b1])]
+
+    tracker.model = MockTrackYOLO()
+
     frame = np.zeros((240, 320, 3), dtype=np.uint8)
     tracks = tracker.track_frame(frame, conf_threshold=0.25)
-    assert isinstance(tracks, list)
+    assert len(tracks) == 1
+    assert tracks[0]["track_id"] == 101
+    assert tracks[0]["class_name"] == "car"
+    assert len(tracks[0]["trail"]) == 1
 
     # Annotation rendering
     annotated = tracker.draw_tracking_annotations(frame, tracks, draw_trails=True)
@@ -31,17 +53,21 @@ def test_tracker_initialization_and_formatting():
     assert len(tracker.cumulative_counts) == 0
 
 
-def test_retrieval_empty_index_and_normalization():
-    temp_index = "samples/test_temp_index.json"
+def test_retrieval_empty_index_and_normalization(tmp_path):
+    """Test retrieval engine with isolated temporary index directory and robust error handling."""
+    temp_index = str(tmp_path / "test_temp_index.json")
     engine = SceneRetrievalEngine(index_path=temp_index)
     # Clean state
-    engine.gallery = []
     assert len(engine.gallery) == 0
 
     # Search on empty gallery should return empty list gracefully
     dummy_query = np.zeros((100, 100, 3), dtype=np.uint8)
     res = engine.search(dummy_query, top_k=3)
     assert res == []
+
+    # Test top_k <= 0 returns empty list immediately
+    assert engine.search(dummy_query, top_k=0) == []
+    assert engine.search(dummy_query, top_k=-1) == []
 
     # Test cosine similarity logic on synthetic unit vectors
     v1 = np.array([1.0, 0.0, 0.0], dtype=np.float32)
@@ -57,10 +83,7 @@ def test_retrieval_empty_index_and_normalization():
         f.write("{invalid-json-content: corrupt")
     engine_corrupt = SceneRetrievalEngine(index_path=temp_index)
     assert engine_corrupt.gallery == []
-
-    # Clean up test index if created
-    if os.path.exists(temp_index):
-        os.remove(temp_index)
+    assert engine_corrupt.last_load_rejected_count == 1
 
 
 def test_segmenter_initialization_and_geometry():
@@ -122,7 +145,50 @@ def test_segmenter_spatial_association_logic():
     distant_boxes = [[0, 0, 10, 10]]
     distant_labels = ["bicycle"]
     segs_unmatched = segmenter.segment(np.zeros((100, 100, 3), dtype=np.uint8), bboxes=distant_boxes, detection_labels=distant_labels)
-    assert "Unassociated" in segs_unmatched[0]["label"] or "Mask" in segs_unmatched[0]["label"]
+    assert "Generic" in segs_unmatched[0]["label"] or "Unassociated" in segs_unmatched[0]["label"]
+
+
+def test_segmenter_edge_cases_and_ambiguity():
+    """Test empty masks, invalid boxes, missing labels, and duplicate matches."""
+    segmenter = Segmenter(model_name="mobile_sam.pt")
+
+    # Mock raw masks output with 1 empty mask and 1 valid mask
+    raw_masks = np.zeros((2, 100, 100), dtype=np.float32)
+    raw_masks[1, 30:70, 30:70] = 1.0  # Mask 2 is valid, Mask 1 is all zeros
+
+    class MockResults:
+        class MockMasks:
+            class MockTensor:
+                def cpu(self):
+                    return self
+                def numpy(self):
+                    return raw_masks
+            data = MockTensor()
+        masks = MockMasks()
+
+    class MockSAM:
+        def __call__(self, *args, **kwargs):
+            return [MockResults()]
+
+    segmenter.model = MockSAM()
+
+    # Pass invalid box [50, 50, 40, 40] (x2 <= x1) and valid box [30, 30, 70, 70]
+    bboxes = [[50, 50, 40, 40], [30, 30, 70, 70]]
+    labels = ["invalid_box", "truck"]
+
+    segs = segmenter.segment(np.zeros((100, 100, 3), dtype=np.uint8), bboxes=bboxes, detection_labels=labels)
+    assert len(segs) == 2
+    # Mask 1 was empty
+    assert "Empty" in segs[0]["label"]
+    assert segs[0]["area_px"] == 0
+    # Mask 2 matched truck
+    assert segs[1]["label"] == "truck"
+    assert segs[1]["box"] == [30, 30, 70, 70]
+
+    # No detections provided -> should return generic mask labels without error
+    segs_no_dets = segmenter.segment(np.zeros((100, 100, 3), dtype=np.uint8), bboxes=None, detection_labels=None)
+    assert len(segs_no_dets) == 2
+    assert "Mask #2" in segs_no_dets[1]["label"]
 
 
 def test_proximity_condition_branches():
@@ -161,9 +227,10 @@ def test_proximity_condition_branches():
     assert evaluate_proximity(100, 100, 130, 130) == "Far / Distant (Visual Heuristic)"
 
 
-def test_retrieval_mocked_search_ranking():
-    """Verify ranking and similarity calculation without downloading DINOv2."""
-    engine = SceneRetrievalEngine(index_path="samples/test_mock_index.json")
+def test_retrieval_mocked_search_ranking(tmp_path):
+    """Verify ranking, similarity calculation, and index validation without downloading DINOv2."""
+    mock_idx = str(tmp_path / "mock_idx.json")
+    engine = SceneRetrievalEngine(index_path=mock_idx)
 
     # Manually configure gallery with known normalized synthetic embeddings (384-D)
     emb_target1 = np.zeros(384, dtype=np.float32)
@@ -172,33 +239,79 @@ def test_retrieval_mocked_search_ranking():
     emb_target2 = np.zeros(384, dtype=np.float32)
     emb_target2[1] = 1.0  # Orthogonal
 
+    # Create dummy image files on disk so index validation accepts them
+    img1 = str(tmp_path / "scene1.jpg")
+    img2 = str(tmp_path / "scene2.jpg")
+    cv2.imwrite(img1, np.zeros((30, 30, 3), dtype=np.uint8))
+    cv2.imwrite(img2, np.zeros((30, 30, 3), dtype=np.uint8))
+
     engine.gallery = [
-        {"path": "samples/road_day_normal.jpg", "name": "road_day_normal.jpg", "embedding": emb_target1.tolist()},
-        {"path": "samples/road_night_dark.jpg", "name": "road_night_dark.jpg", "embedding": emb_target2.tolist()}
+        {"path": img1, "name": "scene1.jpg", "embedding": emb_target1.tolist()},
+        {"path": img2, "name": "scene2.jpg", "embedding": emb_target2.tolist()}
     ]
+    engine.save_index()
+
+    # Re-read using _load_index to verify roundtrip parsing
+    engine2 = SceneRetrievalEngine(index_path=mock_idx)
+    assert len(engine2.gallery) == 2
+    assert engine2.last_load_rejected_count == 0
 
     # Mock extract_embedding on engine
     query_emb = np.zeros(384, dtype=np.float32)
     query_emb[0] = 1.0
-    engine.extract_embedding = lambda img: query_emb
+    engine2.extract_embedding = lambda img: query_emb
 
     dummy_query = np.zeros((50, 50, 3), dtype=np.uint8)
-    matches = engine.search(dummy_query, top_k=2)
+    matches = engine2.search(dummy_query, top_k=2)
 
     assert len(matches) == 2
-    assert matches[0]["name"] == "road_day_normal.jpg"
+    assert matches[0]["name"] == "scene1.jpg"
     assert abs(matches[0]["similarity"] - 1.0) < 1e-4
-    assert matches[1]["name"] == "road_night_dark.jpg"
+    assert matches[1]["name"] == "scene2.jpg"
     assert abs(matches[1]["similarity"] - 0.0) < 1e-4
 
 
-def test_diffusion_restorer_graceful_diagnostics():
+def test_diffusion_restorer_validation_and_mocked_execution():
+    """Verify input validation, failure diagnostics, and mocked inference without downloading multi-GB weights."""
     restorer = DiffusionRestorer()
     dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
 
-    # Test that uninstalled/missing model weights return clean diagnostic dictionary
+    # 1. Invalid prompt validation
+    out, info = restorer.restore_image(dummy_img, prompt="")
+    assert out is None
+    assert info["status"] == "failed"
+    assert "Prompt must be a non-empty string" in info["error"]
+
+    # 2. Invalid steps validation
+    out, info = restorer.restore_image(dummy_img, prompt="test prompt", num_inference_steps=0)
+    assert out is None
+    assert "num_inference_steps must be a positive integer" in info["error"]
+
+    # 3. Missing weights / offline fallback diagnostic
     out, info = restorer.restore_image(dummy_img)
     assert isinstance(info, dict)
-    assert "status" in info
+    assert info["status"] == "failed"
     assert info["is_simulated"] is False
-    assert out is None
+
+    # 4. Mocked successful pipeline inference with dimension matching
+    class MockOutputImage:
+        def __init__(self, w, h):
+            self.images = [np.full((h, w, 3), 180, dtype=np.uint8)]
+
+    class MockPipeline:
+        def __call__(self, prompt, image, num_inference_steps):
+            # Simulate a 4x upscale (256x256 -> 1024x1024)
+            return MockOutputImage(w=1024, h=1024)
+
+    restorer.pipe = MockPipeline()
+    restorer._has_diffusers = True
+
+    input_img = np.zeros((120, 200, 3), dtype=np.uint8)
+    out_bgr, info = restorer.restore_image(input_img, prompt="test road", match_input_resolution=True)
+    assert out_bgr is not None
+    assert info["status"] == "success"
+    # Preserved original input resolution
+    assert out_bgr.shape[:2] == (120, 200)
+    assert info["input_dimensions"] == "200x120"
+    assert info["output_dimensions"] == "200x120"
+

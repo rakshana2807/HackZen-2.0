@@ -124,23 +124,26 @@ This creates synthetic daylight, low-light, and simulated-fog road scenes, along
 
 ### 3. Run Automated Tests
 
-#### Lightweight Test Suite (Offline / CPU / Synthetic & Mocked Inputs)
-All 22 unit tests execute completely offline without downloading any large models:
+#### Lightweight Offline Unit Test Suite (24 tests, CPU, Mocked / Synthetic Inputs)
+All 24 unit tests execute completely offline without downloading any large models or external weights:
 ```bash
-python -m pytest tests/ -v
+python -m pytest tests/ -m "not integration" -v
 ```
 These tests validate:
 - OpenCV enhancement pipelines, Gamma LUT, and LAB CLAHE
 - Format handling (RGBA, Grayscale, BGR)
 - Statistical image metrics (RMS contrast, Laplacian variance, dark ratio)
-- Detection image-space proximity heuristic branch conditions
-- SAM spatial IoU mask-to-box association and fallback to generic labels
-- DINOv2 embedding schema, 384D normalization, empty/corrupted index handling, and mocked cosine ranking
-- Diffusion failure diagnostics, input validation, and aspect-ratio preservation
-- Tiny video writer initialization, non-zero file creation, and reopening
+- Detection image-space proximity heuristic branch conditions and boundary boxes
+- SAM global bipartite IoU & pixel-containment mask association, empty masks, invalid boxes, and generic fallback labels
+- DINOv2 embedding schema, 384D normalization, rejected entry counts, zero-norm guards, empty/corrupted index recovery, and mocked cosine ranking
+- Diffusion failure diagnostics, prompt/step validation, resolution matching, and mocked inference
+- Video tracking application pipeline: frame-by-frame processing, tracking trails, `VideoWriter.isOpened()`, non-zero file creation, and reopening
 
-#### Model-Dependent Integration Tests (Optional Weights)
-If real weights (`yolov8n.pt`, `mobile_sam.pt`, `dinov2_vits14`) and optional diffusion dependencies are present, integration runs can be verified individually.
+#### Model-Dependent Integration Tests
+Genuine model loading and live inference runs on local weights (`yolov8n.pt`, `mobile_sam.pt`, `dinov2_vits14`):
+```bash
+python -m pytest tests/ -m "integration" -v
+```
 
 ---
 

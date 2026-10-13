@@ -192,9 +192,6 @@ def get_restorer() -> DiffusionRestorer:
     return DiffusionRestorer()
 
 
-detector = get_detector()
-
-
 # ==========================================
 # Helper Functions
 # ==========================================
@@ -267,11 +264,12 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### Model Status")
-    # YOLO
-    if detector.is_ready:
+    # YOLO Status (check if weights exist or model initialized without triggering heavy inference)
+    yolo_weights_present = os.path.exists("yolov8n.pt") or ("detector" in st.session_state and st.session_state["detector"].is_ready)
+    if yolo_weights_present:
         st.markdown("<span class='status-pill'>● YOLOv8n Ready</span>", unsafe_allow_html=True)
     else:
-        st.error(f"YOLO Offline: {detector.error_message}")
+        st.markdown("<span class='status-pill-amber'>○ YOLOv8n (Auto-Cache)</span>", unsafe_allow_html=True)
 
     # ByteTrack
     st.markdown("<span class='status-pill'>● ByteTrack Ready</span>", unsafe_allow_html=True)
@@ -463,6 +461,7 @@ elif selected_page == "🖼️ Image Enhancement & Detection":
         m_enh = compute_image_metrics(enhanced_bgr)
 
         # 2. Run Detector on Both
+        detector = get_detector()
         conf_thresh = st.session_state.get("conf_threshold", 0.25)
         selected_classes = st.session_state.get("selected_classes", None)
 
@@ -669,6 +668,7 @@ elif selected_page == "✂️ SAM Masks & Object Analysis":
                 bboxes = None
                 labels = None
                 if prompt_mode == "YOLO Detection Box Prompts":
+                    detector = get_detector()
                     dets = detector.detect(sam_bgr, conf_threshold=0.20)
                     if dets:
                         bboxes = [d["box"] for d in dets]
@@ -910,6 +910,7 @@ elif selected_page == "📈 Analytics & Evaluation":
 
         conf_th = st.session_state.get("conf_threshold", 0.25)
         allowed_cls = st.session_state.get("selected_classes", None)
+        detector = get_detector()
 
         t_start = time.perf_counter()
         dets_raw = detector.detect(raw_img, conf_threshold=conf_th, allowed_classes=allowed_cls)

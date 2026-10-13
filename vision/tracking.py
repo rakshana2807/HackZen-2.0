@@ -15,7 +15,7 @@ from .detection import CLASS_COLORS, DEFAULT_ROAD_CLASSES
 class ObjectTracker:
     """Wrapper around YOLOv8 tracking with ByteTrack integration."""
 
-    def __init__(self, model_name: str = "yolov8n.pt", max_trail_len: int = 25):
+    def __init__(self, model_name: str = "yolov8n.pt", max_trail_len: int = 25, lazy_load: bool = True):
         self.model_name = model_name
         self.model: Optional[YOLO] = None
         self._load_error: Optional[str] = None
@@ -24,19 +24,26 @@ class ObjectTracker:
         self.trails: Dict[int, deque] = {}
         # Cumulative unique track IDs seen: class_name -> set(track_id)
         self.cumulative_counts: Dict[str, Set[int]] = {}
-        self._load_model()
+        if not lazy_load:
+            self._load_model()
 
-    def _load_model(self) -> None:
+    def _load_model(self) -> bool:
+        if self.model is not None:
+            return True
         try:
             self.model = YOLO(self.model_name)
             self._load_error = None
+            return True
         except Exception as e:
             self.model = None
             self._load_error = f"Failed to initialize tracker with {self.model_name}: {str(e)}"
+            return False
 
     @property
     def is_ready(self) -> bool:
-        return self.model is not None
+        if self.model is not None:
+            return True
+        return os.path.exists(self.model_name)
 
     @property
     def error_message(self) -> Optional[str]:
@@ -71,7 +78,7 @@ class ObjectTracker:
                 "trail": List[Tuple[int, int]]
             }
         """
-        if not self.is_ready:
+        if not self._load_model():
             raise RuntimeError(f"Tracker is not initialized. Error: {self._load_error}")
 
         if frame is None or frame.size == 0:

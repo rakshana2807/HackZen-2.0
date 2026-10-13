@@ -32,6 +32,7 @@ class SceneRetrievalEngine:
 
         # Local gallery index: list of { "path": str, "name": str, "embedding": List[float] }
         self.gallery: List[Dict[str, Any]] = []
+        self.last_load_rejected_count: int = 0
         self._load_index()
 
     def load_model(self) -> bool:
@@ -87,29 +88,78 @@ class SceneRetrievalEngine:
         return emb
 
     def _load_index(self) -> None:
-        """Load pre-indexed embeddings from JSON if available and validate entries."""
-        if os.path.exists(self.index_path):
-            try:
-                with open(self.index_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                valid_entries = []
-                if isinstance(data, list):
-                    for item in data:
-                        # Validate schema, embedding dimensions, and file existence
-                        if (
-                            isinstance(item, dict)
-                            and "path" in item
-                            and "embedding" in item
-                            and isinstance(item["embedding"], list)
-                            and len(item["embedding"]) == 384
-                            and os.path.exists(item["path"])
-                        ):
-                            valid_entries.append(item)
-                self.gallery = valid_entries
-            except Exception:
-                self.gallery = []
-        else:
+        """Load pre-indexed embeddings from JSON if available and validate every entry strictly."""
+        self.last_load_rejected_count = 0
+        if not os.path.exists(self.index_path):
             self.gallery = []
+            return
+
+        try:
+            with open(self.index_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if not isinstance(data, list):
+                self.gallery = []
+                self.last_load_rejected_count = 1
+                return
+
+            valid_entries = []
+            seen_paths = set()
+
+            for item in data:
+                # 1. Type and required fields
+                if not isinstance(item, dict):
+                    self.last_load_rejected_count += 1
+                    continue
+                if "path" not in item or "embedding" not in item:
+                    self.last_load_rejected_count += 1
+                    continue
+
+                path_val = item["path"]
+                emb_val = item["embedding"]
+
+                if not isinstance(path_val, str) or not isinstance(emb_val, list):
+                    self.last_load_rejected_count += 1
+                    continue
+
+                # 2. Check path existence and prevent duplicate paths
+                norm_p = os.path.normcase(os.path.abspath(path_val))
+                if norm_p in seen_paths or not os.path.exists(path_val):
+                    self.last_load_rejected_count += 1
+                    continue
+
+                # 3. Dimensionality check (384-D for DINOv2 ViT-S/14)
+                if len(emb_val) != 384:
+                    self.last_load_rejected_count += 1
+                    continue
+
+                # 4. Numeric validity, finiteness, and non-zero vector norm
+                try:
+                    arr = np.array(emb_val, dtype=np.float32)
+                except (ValueError, TypeError):
+                    self.last_load_rejected_count += 1
+                    continue
+
+                if not np.isfinite(arr).all():
+                    self.last_load_rejected_count += 1
+                    continue
+
+                norm = float(np.linalg.norm(arr))
+                if norm < 1e-6:  # Reject all-zero or degenerate vectors
+                    self.last_load_rejected_count += 1
+                    continue
+
+                seen_paths.add(norm_p)
+                valid_entries.append({
+                    "path": path_val,
+                    "name": item.get("name", os.path.basename(path_val)),
+                    "embedding": arr.tolist()
+                })
+
+            self.gallery = valid_entries
+        except Exception:
+            self.gallery = []
+            self.last_load_rejected_count = 1
 
     def save_index(self) -> None:
         """Save indexed embeddings to disk."""
@@ -141,8 +191,10 @@ class SceneRetrievalEngine:
                 return True
 
         emb = self.extract_embedding(img)
-        # Validate embedding shape
+        # Validate embedding shape, finiteness, and norm
         if emb.shape[0] != 384 or not np.isfinite(emb).all():
+            return False
+        if np.linalg.norm(emb) < 1e-6:
             return False
 
         self.gallery.append({
@@ -173,20 +225,21 @@ class SceneRetrievalEngine:
         Returns:
             List of { "path": str, "name": str, "similarity": float }
         """
-        if not self.gallery:
+        if top_k <= 0 or not self.gallery:
             return []
 
         if query_bgr is None or not isinstance(query_bgr, np.ndarray) or query_bgr.size == 0:
             raise ValueError("Query image must be a non-empty numpy array.")
 
         query_emb = self.extract_embedding(query_bgr)
-        # Ensure query embedding is valid and finite
+        # Ensure query embedding is valid, finite, and non-zero
         if not np.isfinite(query_emb).all():
             return []
 
         q_norm = np.linalg.norm(query_emb)
-        if q_norm > 0:
-            query_emb = query_emb / q_norm
+        if q_norm < 1e-6:
+            return []
+        query_emb = query_emb / q_norm
 
         results = []
         for item in self.gallery:
@@ -196,8 +249,9 @@ class SceneRetrievalEngine:
                     continue
 
                 t_norm = np.linalg.norm(target_emb)
-                if t_norm > 0:
-                    target_emb = target_emb / t_norm
+                if t_norm < 1e-6:
+                    continue
+                target_emb = target_emb / t_norm
 
                 sim = float(np.dot(query_emb, target_emb))
                 if np.isnan(sim) or np.isinf(sim):
