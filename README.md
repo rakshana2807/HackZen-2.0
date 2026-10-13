@@ -39,28 +39,35 @@ VisionHack ADAS is a computer vision and deep learning prototype designed to enh
 
 ```
 HackZen 2.0/
-├── app.py                     # Main Streamlit ADAS dashboard
-├── requirements.txt           # Python dependency specifications
-├── README.md                  # Project overview and quickstart guide
-├── DOCUMENTATION.md           # Engineering methodology, math, and ethics
-├── generate_samples.py        # Synthetic road scenes & video generator
+├── app.py                          # Unified Streamlit dashboard (8 sections)
+├── requirements.txt                # Core CPU-friendly dependencies
+├── requirements-optional.txt       # Optional heavy neural model dependencies
+├── README.md                       # Comprehensive guide & 5 approaches walkthrough
+├── DOCUMENTATION.md                # Research methodology, math, and limitations
+├── generate_samples.py             # Synthetic road scenes & video generator
 ├── vision/
-│   ├── __init__.py            # Vision package init
-│   ├── enhancement.py         # Gamma, CLAHE, Low-light & fog algorithms
-│   ├── detection.py           # Ultralytics YOLOv8 detector & bounding box overlays
-│   └── metrics.py             # Contrast, sharpness, and visibility indicators
+│   ├── __init__.py                 # Vision package initialization
+│   ├── enhancement.py              # Gamma, CLAHE, Low-light & fog algorithms
+│   ├── detection.py                # Ultralytics YOLOv8 detector & bounding box overlays
+│   ├── metrics.py                  # Statistical contrast, sharpness, and visibility indicators
+│   ├── tracking.py                 # ByteTrack persistent tracking & motion trails
+│   ├── retrieval.py                # DINOv2 (ViT-S/14) embeddings & nearest-neighbor search
+│   ├── segmentation.py             # MobileSAM instance mask generator & area analysis
+│   └── restoration.py              # Generative diffusion restoration & classical comparisons
 ├── tests/
-│   ├── test_enhancement.py    # Unit tests for enhancement algorithms
-│   ├── test_detection.py      # Unit tests for YOLO detection & rendering
-│   └── test_metrics.py        # Unit tests for image statistical metrics
+│   ├── test_enhancement.py         # Unit tests for enhancement algorithms
+│   ├── test_detection.py           # Unit tests for YOLO detection & rendering
+│   ├── test_metrics.py             # Unit tests for image statistical metrics
+│   ├── test_comparison_and_video.py# Unit tests for comparison logic and video sampling
+│   └── test_advanced_vision.py     # Unit tests for retrieval, SAM geometry, tracking & restoration
 ├── samples/
-│   ├── README.md              # Sample assets description
-│   ├── road_day_normal.jpg    # Clear daylight road scene
-│   ├── road_night_dark.jpg    # Low-light nighttime road scene
-│   ├── road_foggy_simulated.jpg # Atmospheric fog scenario
-│   └── demo_road_clip.mp4     # Multi-frame video clip
+│   ├── README.md                   # Sample assets description
+│   ├── road_day_normal.jpg         # Clear daylight road scene
+│   ├── road_night_dark.jpg         # Low-light nighttime road scene
+│   ├── road_foggy_simulated.jpg    # Atmospheric fog scenario
+│   └── demo_road_clip.mp4          # Multi-frame video clip
 └── outputs/
-    └── .gitkeep               # Directory for exported annotations
+    └── .gitkeep                    # Directory for exported annotations
 ```
 
 ---

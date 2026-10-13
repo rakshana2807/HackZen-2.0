@@ -11,33 +11,42 @@ Under degraded atmospheric and environmental conditions:
 
 ---
 
-## 2. Proposed Architecture & Solution
+## 2. Multi-Model Computer Vision Architecture
 
-VisionHack ADAS addresses this through a modular, dual-stage visual enhancement and perception pipeline:
+VisionHack ADAS addresses road-scene perception through a modular synthesis of five advanced computer vision approaches:
 
 ```
-[Raw Camera / Video Stream]
-            │
-            ▼
-┌───────────────────────────────────────────────┐
-│       Stage 1: Pre-Processing Pipeline        │
-│  - Edge-Preserving Bilateral Denoising        │
-│  - Non-Linear Gamma Expansion (LUT)           │
-│  - Luminance-Channel LAB-Space CLAHE          │
-└───────────────────────┬───────────────────────┘
-                        │
-                        ├───────────────────────────────┐
-                        ▼                               ▼
-        ┌──────────────────────────────┐ ┌──────────────────────────────┐
-        │ Stage 2: Deep Perception     │ │ Stage 3: Statistical Quality │
-        │  - Ultralytics YOLOv8n       │ │  - RMS Luminance Contrast    │
-        │  - Real-time Road Classes    │ │  - Laplacian Variance        │
-        │  - NMS & Confidence Filter   │ │  - Viewport Proximity Score  │
-        └───────────────┬──────────────┘ └──────────────┬───────────────┘
-                        │                               │
-                        └───────────────┬───────────────┘
-                                        ▼
-                        [Streamlit Real-Time Dashboard]
+                          [Raw Road Scene Image / Video Stream]
+                                            │
+                                            ▼
+                    ┌───────────────────────────────────────────────┐
+                    │  Pipeline 1: Adaptive Pre-processing          │
+                    │  - Non-Linear Gamma Expansion (LUT)           │
+                    │  - Luminance LAB-Space CLAHE Equalization     │
+                    │  - Edge-Preserving Bilateral Denoising        │
+                    └───────────────────────┬───────────────────────┘
+                                            │
+         ┌──────────────────────────────────┼──────────────────────────────────┐
+         ▼                                  ▼                                  ▼
+┌────────────────────────┐      ┌────────────────────────┐      ┌────────────────────────┐
+│ Pipeline 2: Perception │      │ Pipeline 3: Retrieval  │      │ Pipeline 4: Restorer   │
+│ - YOLOv8n Localization │      │ - DINOv2 ViT-S/14      │      │ - Diffusion Prior Model│
+│ - Anchor-free classes  │      │ - 384D Embeddings      │      │ - Iterative Denoising  │
+│ - Image-space Areas    │      │ - Cosine NN Search     │      │ - Classical Baselines  │
+└────────┬───────────────┘      └───────────┬────────────┘      └───────────┬────────────┘
+         │                                  │                               │
+         ├─────────────────┐                │                               │
+         ▼                 ▼                │                               │
+┌─────────────────┐ ┌───────────────┐       │                               │
+│ Pipeline 5:     │ │ SAM Instances │       │                               │
+│ ByteTrack Video │ │ - MobileSAM   │       │                               │
+│ - Kalman Filter │ │ - Box-prompted│       │                               │
+│ - Motion Trails │ │ - Area Pixels │       │                               │
+└────────┬────────┘ └───────┬───────┘       │                               │
+         │                  │               │                               │
+         └──────────────────┼───────────────┴───────────────────────────────┘
+                            ▼
+           [Unified Real-Time Streamlit Dashboard]
 ```
 
 ---

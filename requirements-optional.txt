@@ -1,0 +1,13 @@
+# Optional Advanced Computer Vision Dependencies
+# These are optional packages for heavy neural models:
+
+# Segment Anything Model (MobileSAM and SAM weights)
+# Note: Ultralytics includes native MobileSAM support out-of-the-box.
+
+# Diffusion Models for Image Restoration (Requires ~3.5GB download and PyTorch GPU recommended)
+diffusers>=0.25.0
+accelerate>=0.25.0
+transformers>=4.35.0
+
+# Optional Nearest-Neighbor Vector Indexing (FAISS)
+# faiss-cpu>=1.7.4
