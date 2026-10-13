@@ -8,10 +8,12 @@ import time
 import tempfile
 import cv2
 import numpy as np
+import pandas as pd
 from PIL import Image
 import streamlit as st
 
 from vision.enhancement import (
+    validate_image,
     apply_gamma_correction,
     apply_clahe,
     apply_low_light_pipeline,
@@ -76,19 +78,29 @@ CUSTOM_CSS = """
     text-align: center;
 }
 .metric-val {
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     font-weight: 700;
     color: #38bdf8;
 }
 .metric-label {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: #94a3b8;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-top: 4px;
 }
+.metric-delta-pos {
+    color: #34d399;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.metric-delta-neg {
+    color: #f87171;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
 
-/* Warning / Notice Banner */
+/* Notice Banner */
 .notice-box {
     background: rgba(245, 158, 11, 0.1);
     border-left: 4px solid #f59e0b;
@@ -99,7 +111,7 @@ CUSTOM_CSS = """
     margin-bottom: 16px;
 }
 
-/* Success / Status Pill */
+/* Info Pill */
 .status-pill {
     display: inline-block;
     padding: 4px 12px;
@@ -111,7 +123,7 @@ CUSTOM_CSS = """
     border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
-/* Button & Widget Overrides */
+/* Buttons */
 div.stButton > button:first-child {
     background: linear-gradient(135deg, #0284c7 0%, #0f766e 100%);
     color: #ffffff;
@@ -144,41 +156,52 @@ detector = get_detector()
 # ==========================================
 # Helper Functions
 # ==========================================
-def render_metrics_row(metrics: dict, title: str = "Image Statistics"):
-    st.markdown(f"**{title}**")
-    m1, m2, m3, m4 = st.columns(4)
-    with m1:
-        st.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-val">{metrics['mean_luminance']}</div>
-            <div class="metric-label">Mean Luminance (0-255)</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with m2:
-        st.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-val">{metrics['rms_contrast']}</div>
-            <div class="metric-label">RMS Contrast (Std Dev)</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with m3:
-        st.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-val">{metrics['laplacian_variance']}</div>
-            <div class="metric-label">Laplacian Var (Sharpness)</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with m4:
-        st.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-val">{metrics['experimental_quality_score']} <span style='font-size:0.9rem;'>/ 100</span></div>
-            <div class="metric-label">Exp. Visibility Score</div>
-        </div>
-        """, unsafe_allow_html=True)
+def render_metrics_comparison_cards(orig_m: dict, enh_m: dict):
+    """Render side-by-side metric comparison cards with calculated deltas."""
+    cols = st.columns(4)
+    items = [
+        ("Brightness (Mean Lum)", "mean_luminance", "", 1),
+        ("Contrast (RMS Std)", "rms_contrast", "", 1),
+        ("Sharpness (Laplacian Var)", "laplacian_variance", "", 1),
+        ("Visibility Heuristic", "experimental_quality_score", "/ 100", 1)
+    ]
+    for col, (label, key, unit, decimals) in zip(cols, items):
+        v1 = orig_m[key]
+        v2 = enh_m[key]
+        delta = round(v2 - v1, decimals)
+        delta_str = f"{delta:+g}"
+        delta_class = "metric-delta-pos" if delta >= 0 else "metric-delta-neg"
+        with col:
+            st.markdown(f"""
+            <div class="metric-box">
+                <div class="metric-label">{label}</div>
+                <div style="display:flex; justify-content:space-around; align-items:baseline; margin-top:6px;">
+                    <div><span style="font-size:0.8rem; color:#94a3b8;">Orig:</span> <strong style="color:#cbd5e1;">{v1}</strong></div>
+                    <div><span style="font-size:0.8rem; color:#94a3b8;">Enh:</span> <strong style="color:#38bdf8;">{v2}{unit}</strong></div>
+                </div>
+                <div class="{delta_class}" style="margin-top:4px;">Shift: {delta_str}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+def safe_decode_image(uploaded_file) -> np.ndarray:
+    """Safely decode an uploaded image file into a BGR uint8 numpy array."""
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise ValueError("Could not decode the uploaded image file.")
+    if len(img.shape) == 2:
+        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    elif len(img.shape) == 3:
+        if img.shape[2] == 4:
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        elif img.shape[2] == 3:
+            return img
+    raise ValueError(f"Unsupported image shape: {img.shape}")
 
 
 # ==========================================
-# Sidebar Navigation & Settings
+# Sidebar Navigation & Model Status
 # ==========================================
 with st.sidebar:
     st.title("🚗 VisionHack ADAS")
@@ -189,18 +212,20 @@ with st.sidebar:
         "Navigation",
         [
             "📊 Dashboard Overview",
-            "🖼️ Image Analysis",
+            "⚖️ Original vs Enhanced Detection",
+            "🖼️ Image Enhancement",
+            "📈 Detection Analytics",
             "🎥 Video Analysis",
             "⚙️ Detection Settings",
             "📖 About & Methodology"
         ],
-        index=0
+        index=1
     )
 
     st.divider()
     st.markdown("### Model Status")
     if detector.is_ready:
-        st.markdown("<span class='status-pill'>● YOLOv8n Active</span>", unsafe_allow_html=True)
+        st.markdown("<span class='status-pill'>● YOLOv8n Active (CPU)</span>", unsafe_allow_html=True)
         st.caption("Ultralytics Pretrained Engine Ready")
     else:
         st.error(f"Detector Offline: {detector.error_message}")
@@ -209,8 +234,8 @@ with st.sidebar:
     st.markdown("""
     <div style='font-size: 0.75rem; color: #64748b;'>
     <strong>ADAS Prototype Disclaimer:</strong><br>
-    All visibility indices and proximity tags are experimental heuristics.
-    Not certified for vehicle control or physical road distance measurement.
+    All visibility scores and proximity tags are experimental heuristics.
+    Not calibrated to real-world metric distances. Not certified for vehicle control.
     </div>
     """, unsafe_allow_html=True)
 
@@ -220,11 +245,11 @@ with st.sidebar:
 # ==========================================
 if selected_page == "📊 Dashboard Overview":
     st.markdown("## 📊 VisionHack ADAS Overview")
-    st.markdown("#### Advanced Driver Assistance System Visibility Pipeline")
+    st.markdown("#### Advanced Driver Assistance System Visibility & Perception Pipeline")
 
     st.markdown("""
     <div class='notice-box'>
-        ⚠️ <strong>Notice:</strong> This dashboard is an engineering prototype for adverse weather and low-light road analysis.
+        ⚠️ <strong>Notice:</strong> This dashboard is an engineering and research prototype for adverse weather and low-light road analysis.
         All contrast scores and spatial heuristics are experimental and not calibrated to real-world metric distances.
     </div>
     """, unsafe_allow_html=True)
@@ -235,12 +260,12 @@ if selected_page == "📊 Dashboard Overview":
         <div class='adas-card'>
             <div class='adas-card-title'>🎯 System Objectives</div>
             <p>
-            Autonomous vehicles and Advanced Driver Assistance Systems (ADAS) experience performance degradation in low-light, nighttime, and adverse atmospheric conditions (fog/rain).
-            VisionHack demonstrates a dual-stage vision architecture:
+            Autonomous vehicles and Advanced Driver Assistance Systems (ADAS) experience severe perception degradation under low-light, nighttime, and adverse atmospheric conditions (fog/rain).
+            VisionHack demonstrates a modular, dual-stage vision architecture:
             </p>
             <ul>
                 <li><strong>Stage 1 — Adaptive Pre-processing:</strong> Non-linear gamma expansion and LAB-space CLAHE to recover edge contrast and shadow features without washing out highlights.</li>
-                <li><strong>Stage 2 — Perception & Object Detection:</strong> Real-time YOLOv8 inference to localize road entities (vehicles, pedestrians, cyclists, signs).</li>
+                <li><strong>Stage 2 — Perception & Object Detection:</strong> Real-time YOLOv8n inference to localize road entities (vehicles, pedestrians, cyclists, signs).</li>
                 <li><strong>Stage 3 — Quality & Proximity Heuristics:</strong> Laplacian edge metrics and image-space bounding box sizing heuristics to guide driver awareness.</li>
             </ul>
         </div>
@@ -273,123 +298,113 @@ if selected_page == "📊 Dashboard Overview":
     with col2:
         st.markdown("""
         <div class='adas-card'>
-            <div class='adas-card-title'>🚀 Quick Start Guide</div>
+            <div class='adas-card-title'>🚀 Quick Navigation</div>
             <ol style='color: #cbd5e1; font-size: 0.9rem; line-height: 1.6;'>
-                <li>Navigate to <strong>🖼️ Image Analysis</strong> to upload road images or load bundled sample road scenes.</li>
-                <li>Compare <strong>Gamma</strong>, <strong>CLAHE</strong>, or <strong>Low-Light</strong> enhancement pipelines side-by-side.</li>
-                <li>Toggle YOLO detection on original vs enhanced images to observe contrast-driven bounding box recall.</li>
-                <li>Visit <strong>🎥 Video Analysis</strong> to process multi-frame road footage with download support.</li>
+                <li><strong>⚖️ Original vs Enhanced Detection:</strong> Highest-priority comparison workflow running YOLOv8n on both original and enhanced inputs.</li>
+                <li><strong>🖼️ Image Enhancement:</strong> Dedicated tuning for Gamma, CLAHE, and Bilateral low-light filters.</li>
+                <li><strong>📈 Detection Analytics:</strong> Class distributions, confidence breakdowns, and comparative metrics.</li>
+                <li><strong>🎥 Video Analysis:</strong> Frame-by-frame video processing with configurable sampling intervals.</li>
             </ol>
             <div style='text-align: center; margin-top: 15px;'>
-                <span class='status-pill'>Pipeline Ready for Testing</span>
+                <span class='status-pill'>Architecture Verified & Testable</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # Quick sample check
         st.markdown("""
         <div class='adas-card'>
-            <div class='adas-card-title'>📁 Sample Assets Available</div>
+            <div class='adas-card-title'>📁 Sample Assets Ready</div>
             <div style='font-size: 0.85rem; color: #94a3b8;'>
                 Pre-generated test scenes in <code>samples/</code>:
                 <ul style='margin-top: 6px;'>
-                    <li><code>road_day_normal.jpg</code></li>
-                    <li><code>road_night_dark.jpg</code></li>
-                    <li><code>road_foggy_simulated.jpg</code></li>
-                    <li><code>demo_road_clip.mp4</code></li>
+                    <li><code>road_day_normal.jpg</code> (Clear day benchmark)</li>
+                    <li><code>road_night_dark.jpg</code> (Low-light underexposure)</li>
+                    <li><code>road_foggy_simulated.jpg</code> (Atmospheric scattering demo)</li>
+                    <li><code>demo_road_clip.mp4</code> (30-frame road clip)</li>
                 </ul>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
 
-# ==========================================
-# PAGE 2: IMAGE ANALYSIS
-# ==========================================
-elif selected_page == "🖼️ Image Analysis":
-    st.markdown("## 🖼️ Image Analysis & Visibility Pipeline")
-    st.caption("Upload a road-scene image or test with pre-bundled scenarios.")
+# =========================================================
+# PAGE 2: FEATURE 1 — ORIGINAL VS ENHANCED DETECTION (HIGH PRIORITY)
+# =========================================================
+elif selected_page == "⚖️ Original vs Enhanced Detection":
+    st.markdown("## ⚖️ Original vs Enhanced Detection Comparison")
+    st.caption("Side-by-side detection evaluation using the identical YOLOv8n model on raw and enhanced inputs.")
 
     # Top Controls Card
     with st.container():
         st.markdown("<div class='adas-card'>", unsafe_allow_html=True)
-        col_src, col_enh, col_det_target = st.columns([2, 2, 2])
+        col_src, col_enh = st.columns([1, 1])
 
         with col_src:
             source_choice = st.radio(
-                "Image Source",
-                ["Upload Image", "Use Pre-bundled Sample Scene"],
+                "Input Source",
+                ["Use Pre-bundled Sample Scene", "Upload Custom Road Image"],
                 horizontal=True
             )
 
         with col_enh:
             enhancement_mode = st.selectbox(
-                "Enhancement Pipeline",
+                "Select Enhancement Method",
                 [
-                    "None (Raw Input)",
+                    "Combined Low-Light Pipeline",
                     "Gamma Correction",
                     "CLAHE (LAB Lightness)",
-                    "Combined Low-Light Pipeline",
-                    "Simulated Fog (Demo Only)"
+                    "Simulated Fog (Demo Testbed)"
                 ],
-                index=3
-            )
-
-        with col_det_target:
-            detection_target = st.radio(
-                "Run YOLO Detection On:",
-                ["Enhanced Image", "Original Image", "Both Side-by-Side", "None (Enhance Only)"],
                 index=0
             )
 
-        # Parameter Sliders
-        col_p1, col_p2, col_p3 = st.columns(3)
-        if enhancement_mode == "Gamma Correction":
-            with col_p1:
-                gamma_val = st.slider("Gamma Value", min_value=0.2, max_value=3.5, value=1.6, step=0.1)
+        # Method parameters
+        pcol1, pcol2, pcol3 = st.columns(3)
+        if enhancement_mode == "Combined Low-Light Pipeline":
+            with pcol1:
+                gamma_val = st.slider("Gamma Expansion", 0.5, 3.0, 1.5, 0.1)
+            with pcol2:
+                clip_val = st.slider("CLAHE Clip Limit", 1.0, 8.0, 2.2, 0.2)
+            with pcol3:
+                denoise_val = st.checkbox("Bilateral Denoise", value=True)
+        elif enhancement_mode == "Gamma Correction":
+            with pcol1:
+                gamma_val = st.slider("Gamma Value", 0.2, 3.5, 1.6, 0.1)
         elif enhancement_mode == "CLAHE (LAB Lightness)":
-            with col_p1:
-                clahe_clip = st.slider("Clip Limit", min_value=1.0, max_value=10.0, value=2.5, step=0.5)
-            with col_p2:
-                grid_sz = st.select_slider("Tile Grid Size", options=[4, 8, 16], value=8)
-        elif enhancement_mode == "Combined Low-Light Pipeline":
-            with col_p1:
-                ll_gamma = st.slider("Gamma", min_value=0.5, max_value=3.0, value=1.5, step=0.1)
-            with col_p2:
-                ll_clip = st.slider("CLAHE Clip", min_value=1.0, max_value=8.0, value=2.2, step=0.2)
-            with col_p3:
-                ll_denoise = st.checkbox("Bilateral Filter (Denoise)", value=True)
-        elif enhancement_mode == "Simulated Fog (Demo Only)":
-            with col_p1:
-                fog_dens = st.slider("Fog Density Factor", min_value=0.1, max_value=1.0, value=0.6, step=0.05)
-            with col_p2:
-                fog_bright = st.slider("Atmospheric Luminance", min_value=150, max_value=255, value=210, step=5)
-            st.caption("⚠️ Note: Synthetic demonstration only. Not environmental fog detection.")
+            with pcol1:
+                clip_val = st.slider("Clip Limit", 1.0, 10.0, 2.5, 0.5)
+            with pcol2:
+                grid_sz = st.select_slider("Tile Grid Size", [4, 8, 16], value=8)
+        elif enhancement_mode == "Simulated Fog (Demo Testbed)":
+            with pcol1:
+                fog_dens = st.slider("Fog Density Factor", 0.1, 1.0, 0.6, 0.05)
+            with pcol2:
+                fog_bright = st.slider("Atmospheric Luminance", 150, 255, 210, 5)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Input Image Loading
+    # Image loading
     raw_bgr = None
-    image_name = "image.jpg"
+    image_name = "sample.jpg"
 
-    if source_choice == "Upload Image":
+    if source_choice == "Upload Custom Road Image":
         uploaded_file = st.file_uploader(
             "Upload Road Scene Image (JPG, JPEG, PNG)",
             type=["jpg", "jpeg", "png"]
         )
         if uploaded_file is not None:
             image_name = uploaded_file.name
-            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-            raw_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            if raw_bgr is None:
-                st.error("Could not decode the uploaded image. Please check the file format.")
+            try:
+                raw_bgr = safe_decode_image(uploaded_file)
+            except Exception as e:
+                st.error(f"Image decode error: {e}")
     else:
         sample_options = {
             "Night Road Scene (Dark)": "samples/road_night_dark.jpg",
-            "Day Road Scene (Normal)": "samples/road_day_normal.jpg",
-            "Simulated Fog Road Scene": "samples/road_foggy_simulated.jpg"
+            "Simulated Fog Road Scene": "samples/road_foggy_simulated.jpg",
+            "Day Road Scene (Normal)": "samples/road_day_normal.jpg"
         }
-        selected_sample_label = st.selectbox("Select Sample Scenario", list(sample_options.keys()))
+        selected_sample_label = st.selectbox("Select Benchmark Scene", list(sample_options.keys()))
         sample_path = sample_options[selected_sample_label]
         image_name = os.path.basename(sample_path)
         if os.path.exists(sample_path):
@@ -399,142 +414,314 @@ elif selected_page == "🖼️ Image Analysis":
 
     if raw_bgr is not None:
         h, w = raw_bgr.shape[:2]
-        st.caption(f"Loaded Image: **{image_name}** | Dimensions: **{w} x {h} px**")
+        st.caption(f"Active Scene: **{image_name}** | Dimensions: **{w} x {h} px**")
 
-        # 1. Image Enhancement Execution
+        # 1. Apply Enhancement
         t0 = time.perf_counter()
-        if enhancement_mode == "None (Raw Input)":
-            enhanced_bgr = raw_bgr.copy()
+        if enhancement_mode == "Combined Low-Light Pipeline":
+            enhanced_bgr = apply_low_light_pipeline(raw_bgr, gamma=gamma_val, clip_limit=clip_val, denoise=denoise_val)
         elif enhancement_mode == "Gamma Correction":
             enhanced_bgr = apply_gamma_correction(raw_bgr, gamma=gamma_val)
         elif enhancement_mode == "CLAHE (LAB Lightness)":
-            enhanced_bgr = apply_clahe(raw_bgr, clip_limit=clahe_clip, tile_grid_size=(grid_sz, grid_sz))
-        elif enhancement_mode == "Combined Low-Light Pipeline":
-            enhanced_bgr = apply_low_light_pipeline(
-                raw_bgr, gamma=ll_gamma, clip_limit=ll_clip, denoise=ll_denoise
-            )
-        elif enhancement_mode == "Simulated Fog (Demo Only)":
+            enhanced_bgr = apply_clahe(raw_bgr, clip_limit=clip_val, tile_grid_size=(grid_sz, grid_sz))
+        elif enhancement_mode == "Simulated Fog (Demo Testbed)":
             enhanced_bgr = apply_simulated_fog(raw_bgr, fog_density=fog_dens, fog_brightness=fog_bright)
         t_enh = (time.perf_counter() - t0) * 1000.0
 
-        # 2. Compute Metrics
-        orig_metrics = compute_image_metrics(raw_bgr)
-        enh_metrics = compute_image_metrics(enhanced_bgr)
+        # 2. Quality Metrics
+        m_orig = compute_image_metrics(raw_bgr)
+        m_enh = compute_image_metrics(enhanced_bgr)
 
-        # 3. Object Detection Inference
+        # 3. Model Inference on Both Images
         conf_thresh = st.session_state.get("conf_threshold", 0.25)
         selected_classes = st.session_state.get("selected_classes", None)
 
-        orig_annotated = None
-        enh_annotated = None
-        orig_dets = []
-        enh_dets = []
-        t_det = 0.0
+        t_det0 = time.perf_counter()
+        dets_orig = detector.detect(raw_bgr, conf_threshold=conf_thresh, allowed_classes=selected_classes)
+        t_det_orig = (time.perf_counter() - t_det0) * 1000.0
 
-        if detector.is_ready and detection_target != "None (Enhance Only)":
-            t_det_start = time.perf_counter()
-            if detection_target in ["Original Image", "Both Side-by-Side"]:
-                orig_dets = detector.detect(raw_bgr, conf_threshold=conf_thresh, allowed_classes=selected_classes)
-                orig_annotated = detector.draw_annotations(raw_bgr, orig_dets, show_proximity=True)
+        t_det1 = time.perf_counter()
+        dets_enh = detector.detect(enhanced_bgr, conf_threshold=conf_thresh, allowed_classes=selected_classes)
+        t_det_enh = (time.perf_counter() - t_det1) * 1000.0
 
-            if detection_target in ["Enhanced Image", "Both Side-by-Side"]:
-                enh_dets = detector.detect(enhanced_bgr, conf_threshold=conf_thresh, allowed_classes=selected_classes)
-                enh_annotated = detector.draw_annotations(enhanced_bgr, enh_dets, show_proximity=True)
-            t_det = (time.perf_counter() - t_det_start) * 1000.0
+        ann_orig = detector.draw_annotations(raw_bgr, dets_orig, show_proximity=True)
+        ann_enh = detector.draw_annotations(enhanced_bgr, dets_enh, show_proximity=True)
 
-        # Display side-by-side or individual outputs
-        st.markdown("### Visual Inspection & Comparison")
-        c1, c2 = st.columns(2)
+        # 4. Display Side-by-Side Images
+        st.markdown("### 🖼️ Side-by-Side Visual Comparison")
+        col_img1, col_img2 = st.columns(2)
+        with col_img1:
+            st.markdown(f"**Original Image ({len(dets_orig)} detected)**")
+            st.image(cv2.cvtColor(ann_orig, cv2.COLOR_BGR2RGB), use_container_width=True)
+            st.caption(f"YOLO Inference: {t_det_orig:.1f} ms")
+        with col_img2:
+            st.markdown(f"**Enhanced Image [{enhancement_mode}] ({len(dets_enh)} detected)**")
+            st.image(cv2.cvtColor(ann_enh, cv2.COLOR_BGR2RGB), use_container_width=True)
+            st.caption(f"Enhancement: {t_enh:.1f} ms | YOLO Inference: {t_det_enh:.1f} ms")
 
-        with c1:
-            st.markdown("#### 1. Input Image")
-            if orig_annotated is not None:
-                st.image(cv2.cvtColor(orig_annotated, cv2.COLOR_BGR2RGB), caption=f"Original + YOLO ({len(orig_dets)} detected)", use_container_width=True)
-            else:
-                st.image(cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2RGB), caption="Original Input", use_container_width=True)
-            render_metrics_row(orig_metrics, "Original Image Statistics")
+        # 5. Metric Cards Comparison
+        st.markdown("### 📊 Visibility & Statistical Image Properties")
+        render_metrics_comparison_cards(m_orig, m_enh)
 
-        with c2:
-            st.markdown(f"#### 2. Processed Output ({enhancement_mode})")
-            if enh_annotated is not None:
-                st.image(cv2.cvtColor(enh_annotated, cv2.COLOR_BGR2RGB), caption=f"Enhanced + YOLO ({len(enh_dets)} detected)", use_container_width=True)
-            else:
-                st.image(cv2.cvtColor(enhanced_bgr, cv2.COLOR_BGR2RGB), caption="Enhanced Output", use_container_width=True)
-            render_metrics_row(enh_metrics, "Enhanced Image Statistics")
+        # 6. Detection Difference & Scientific Disclaimer
+        diff_count = len(dets_enh) - len(dets_orig)
+        diff_sign = f"+{diff_count}" if diff_count > 0 else str(diff_count)
 
-        # Performance summary pill
         st.markdown(f"""
-        <div style='background: #1e293b; padding: 10px 15px; border-radius: 8px; margin: 15px 0; font-size: 0.85rem; color: #94a3b8;'>
-            ⏱️ <strong>Processing Latency:</strong> Enhancement: <span style='color:#38bdf8;'>{t_enh:.1f} ms</span> |
-            YOLO Inference: <span style='color:#38bdf8;'>{t_det:.1f} ms</span> |
-            Contrast Shift: <span style='color:#34d399;'>{enh_metrics['rms_contrast'] - orig_metrics['rms_contrast']:+.2f} RMS</span>
+        <div style='background: #1e293b; border-left: 4px solid #38bdf8; padding: 12px 18px; border-radius: 6px; margin: 15px 0;'>
+            <strong>Detection Count Shift:</strong>
+            Original: <strong style='color:#cbd5e1;'>{len(dets_orig)}</strong> |
+            Enhanced: <strong style='color:#38bdf8;'>{len(dets_enh)}</strong> |
+            Difference: <strong style='color:{"#34d399" if diff_count >= 0 else "#f87171"};'>{diff_sign} objects</strong>
+            <br>
+            <span style='font-size:0.8rem; color:#94a3b8;'>
+            ⚠️ Scientific Note: A change in detection count does not claim or prove improved accuracy without verified ground-truth labels.
+            </span>
         </div>
         """, unsafe_allow_html=True)
 
-        # Detection Summary Breakdown
-        active_dets = enh_dets if detection_target == "Enhanced Image" else (orig_dets if detection_target == "Original Image" else enh_dets)
-        if detection_target != "None (Enhance Only)":
-            st.markdown("### 🎯 Detection Summary")
-            dcol1, dcol2 = st.columns([1, 2])
-            with dcol1:
-                st.metric("Total Objects Detected", len(active_dets))
-                # Class counts breakdown
-                counts = {}
-                for d in active_dets:
-                    counts[d["class_name"]] = counts.get(d["class_name"], 0) + 1
-                for cname, count in counts.items():
-                    st.write(f"• **{cname}**: {count}")
-            with dcol2:
-                if active_dets:
-                    table_data = [
-                        {
-                            "Class": d["class_name"],
-                            "Confidence": f"{d['confidence']:.1%}",
-                            "Bounding Box (x1, y1, x2, y2)": str(d["box"]),
-                            "Relative Viewport Area": f"{d['relative_area_pct']}%",
-                            "Spatial Proximity Tag": d["proximity_heuristic"]
-                        }
-                        for d in active_dets
-                    ]
-                    st.dataframe(table_data, use_container_width=True)
-                else:
-                    st.info("No objects detected above the selected confidence threshold.")
+        # 7. Comparison Table
+        st.markdown("### 📋 Detailed Detection Comparison Table")
+        tcol1, tcol2 = st.columns(2)
+        with tcol1:
+            st.markdown("**Original Image Detections**")
+            if dets_orig:
+                df_orig = pd.DataFrame([
+                    {
+                        "Class": d["class_name"],
+                        "Confidence": f"{d['confidence']:.1%}",
+                        "Box [x1, y1, x2, y2]": str(d["box"]),
+                        "Area %": f"{d['relative_area_pct']}%",
+                        "Proximity": d["proximity_heuristic"].split()[0]
+                    }
+                    for d in dets_orig
+                ])
+                st.dataframe(df_orig, use_container_width=True)
+            else:
+                st.info("No objects detected in original image.")
 
-        # Download Options
-        st.markdown("### 💾 Export Results")
-        d_col1, d_col2 = st.columns(2)
-        with d_col1:
-            res, enc_img = cv2.imencode(".png", enhanced_bgr)
-            if res:
+        with tcol2:
+            st.markdown("**Enhanced Image Detections**")
+            if dets_enh:
+                df_enh = pd.DataFrame([
+                    {
+                        "Class": d["class_name"],
+                        "Confidence": f"{d['confidence']:.1%}",
+                        "Box [x1, y1, x2, y2]": str(d["box"]),
+                        "Area %": f"{d['relative_area_pct']}%",
+                        "Proximity": d["proximity_heuristic"].split()[0]
+                    }
+                    for d in dets_enh
+                ])
+                st.dataframe(df_enh, use_container_width=True)
+            else:
+                st.info("No objects detected in enhanced image.")
+
+        # 8. Export Downloads
+        st.markdown("### 💾 Export Outputs")
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            res_enh, enc_enh = cv2.imencode(".png", enhanced_bgr)
+            if res_enh:
                 st.download_button(
-                    label="⬇️ Download Enhanced Image (PNG)",
-                    data=enc_img.tobytes(),
+                    "⬇️ Download Enhanced Image (PNG)",
+                    enc_enh.tobytes(),
                     file_name=f"enhanced_{image_name}.png",
                     mime="image/png"
                 )
-        with d_col2:
-            annotated_export = enh_annotated if enh_annotated is not None else (orig_annotated if orig_annotated is not None else enhanced_bgr)
-            res2, enc_ann = cv2.imencode(".png", annotated_export)
-            if res2:
+        with d2:
+            res_ann_o, enc_ann_o = cv2.imencode(".png", ann_orig)
+            if res_ann_o:
                 st.download_button(
-                    label="⬇️ Download Annotated Detection (PNG)",
-                    data=enc_ann.tobytes(),
-                    file_name=f"annotated_{image_name}.png",
+                    "⬇️ Download Original Annotated (PNG)",
+                    enc_ann_o.tobytes(),
+                    file_name=f"annotated_orig_{image_name}.png",
+                    mime="image/png"
+                )
+        with d3:
+            res_ann_e, enc_ann_e = cv2.imencode(".png", ann_enh)
+            if res_ann_e:
+                st.download_button(
+                    "⬇️ Download Enhanced Annotated (PNG)",
+                    enc_ann_e.tobytes(),
+                    file_name=f"annotated_enh_{image_name}.png",
                     mime="image/png"
                 )
 
 
-# ==========================================
-# PAGE 3: VIDEO ANALYSIS
-# ==========================================
+# =========================================================
+# PAGE 3: FEATURE 2 — IMAGE ENHANCEMENT & QUALITY ANALYSIS
+# =========================================================
+elif selected_page == "🖼️ Image Enhancement":
+    st.markdown("## 🖼️ Image Enhancement & Quality Analysis")
+    st.caption("Deep-dive inspection into non-linear gamma, LAB-space CLAHE, and image-quality indicators.")
+
+    src_mode = st.radio("Source", ["Pre-bundled Benchmark Scenario", "Upload Image"], horizontal=True)
+    raw_bgr = None
+    image_name = "test.jpg"
+
+    if src_mode == "Upload Image":
+        up_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
+        if up_file is not None:
+            image_name = up_file.name
+            try:
+                raw_bgr = safe_decode_image(up_file)
+            except Exception as e:
+                st.error(f"Image load error: {e}")
+    else:
+        sample_options = {
+            "Low-Light Night Road": "samples/road_night_dark.jpg",
+            "Atmospheric Fog Scenario": "samples/road_foggy_simulated.jpg",
+            "Clear Day Benchmark": "samples/road_day_normal.jpg"
+        }
+        chosen = st.selectbox("Scenario", list(sample_options.keys()))
+        s_path = sample_options[chosen]
+        image_name = os.path.basename(s_path)
+        if os.path.exists(s_path):
+            raw_bgr = cv2.imread(s_path)
+
+    if raw_bgr is not None:
+        c_mode, c_p1, c_p2 = st.columns([2, 1, 1])
+        with c_mode:
+            enh_algo = st.selectbox(
+                "Enhancement Pipeline",
+                ["Combined Low-Light", "Gamma Correction", "CLAHE (LAB)", "Simulated Fog"]
+            )
+        if enh_algo == "Combined Low-Light":
+            with c_p1:
+                g_val = st.slider("Gamma", 0.5, 3.0, 1.5, 0.1)
+            with c_p2:
+                c_val = st.slider("CLAHE Clip", 1.0, 8.0, 2.2, 0.2)
+            enhanced = apply_low_light_pipeline(raw_bgr, gamma=g_val, clip_limit=c_val, denoise=True)
+        elif enh_algo == "Gamma Correction":
+            with c_p1:
+                g_val = st.slider("Gamma", 0.2, 3.5, 1.6, 0.1)
+            enhanced = apply_gamma_correction(raw_bgr, gamma=g_val)
+        elif enh_algo == "CLAHE (LAB)":
+            with c_p1:
+                c_val = st.slider("Clip Limit", 1.0, 10.0, 2.5, 0.5)
+            enhanced = apply_clahe(raw_bgr, clip_limit=c_val)
+        else:
+            with c_p1:
+                f_dens = st.slider("Density", 0.1, 1.0, 0.6, 0.05)
+            enhanced = apply_simulated_fog(raw_bgr, fog_density=f_dens)
+
+        m_raw = compute_image_metrics(raw_bgr)
+        m_proc = compute_image_metrics(enhanced)
+
+        st.markdown("### Visual Comparison")
+        v1, v2 = st.columns(2)
+        with v1:
+            st.image(cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2RGB), caption="Original Input", use_container_width=True)
+        with v2:
+            st.image(cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB), caption=f"Enhanced Output ({enh_algo})", use_container_width=True)
+
+        st.markdown("### Quality Metrics Breakdown")
+        render_metrics_comparison_cards(m_raw, m_proc)
+
+        # Comparison Bar Chart
+        st.markdown("#### Metrics Comparison Chart")
+        chart_df = pd.DataFrame({
+            "Metric": ["Mean Luminance", "RMS Contrast", "Laplacian Var", "Visibility Index"],
+            "Original": [m_raw["mean_luminance"], m_raw["rms_contrast"], min(250.0, m_raw["laplacian_variance"]), m_raw["experimental_quality_score"]],
+            "Enhanced": [m_proc["mean_luminance"], m_proc["rms_contrast"], min(250.0, m_proc["laplacian_variance"]), m_proc["experimental_quality_score"]],
+        }).set_index("Metric")
+        st.bar_chart(chart_df)
+
+
+# =========================================================
+# PAGE 4: FEATURE 3 — DETECTION ANALYTICS DASHBOARD
+# =========================================================
+elif selected_page == "📈 Detection Analytics":
+    st.markdown("## 📈 Detection Analytics Dashboard")
+    st.caption("Quantitative analytics derived genuinely from YOLOv8n object detection runs.")
+
+    sample_choices = {
+        "Night Road Scene": "samples/road_night_dark.jpg",
+        "Day Road Scene": "samples/road_day_normal.jpg",
+        "Simulated Fog Road Scene": "samples/road_foggy_simulated.jpg"
+    }
+    chosen_scene = st.selectbox("Select Test Scene for Analytics", list(sample_choices.keys()))
+    img_path = sample_choices[chosen_scene]
+
+    if os.path.exists(img_path):
+        raw_img = cv2.imread(img_path)
+        enh_img = apply_low_light_pipeline(raw_img, gamma=1.5, clip_limit=2.2, denoise=True)
+
+        conf_th = st.session_state.get("conf_threshold", 0.25)
+        allowed_cls = st.session_state.get("selected_classes", None)
+
+        t_start = time.perf_counter()
+        dets_raw = detector.detect(raw_img, conf_threshold=conf_th, allowed_classes=allowed_cls)
+        t_raw = (time.perf_counter() - t_start) * 1000.0
+
+        t_start = time.perf_counter()
+        dets_enh = detector.detect(enh_img, conf_threshold=conf_th, allowed_classes=allowed_cls)
+        t_enh = (time.perf_counter() - t_start) * 1000.0
+
+        # Summary KPIs
+        st.markdown("### Summary Key Performance Indicators")
+        k1, k2, k3, k4 = st.columns(4)
+        with k1:
+            st.metric("Total Objects (Raw)", len(dets_raw))
+        with k2:
+            st.metric("Total Objects (Enhanced)", len(dets_enh), delta=len(dets_enh)-len(dets_raw))
+        with k3:
+            avg_conf_raw = (np.mean([d["confidence"] for d in dets_raw]) * 100) if dets_raw else 0.0
+            avg_conf_enh = (np.mean([d["confidence"] for d in dets_enh]) * 100) if dets_enh else 0.0
+            st.metric("Avg Conf (Enh)", f"{avg_conf_enh:.1f}%", delta=f"{avg_conf_enh - avg_conf_raw:+.1f}%")
+        with k4:
+            st.metric("Inference Time", f"{t_enh:.1f} ms", delta=f"{t_enh - t_raw:+.1f} ms")
+
+        # Class Breakdown
+        st.markdown("### Class Distribution & Confidence Breakdown")
+        col_c1, col_c2 = st.columns(2)
+
+        with col_c1:
+            st.markdown("**Enhanced Detections by Class**")
+            if dets_enh:
+                class_counts = {}
+                for d in dets_enh:
+                    class_counts[d["class_name"]] = class_counts.get(d["class_name"], 0) + 1
+                st.bar_chart(pd.Series(class_counts, name="Count"))
+            else:
+                st.info("No detections above threshold in enhanced scene.")
+
+        with col_c2:
+            st.markdown("**Confidence Scores per Detection**")
+            if dets_enh:
+                conf_series = pd.Series([d["confidence"] for d in dets_enh], index=[f"Obj {i+1} ({d['class_name']})" for i, d in enumerate(dets_enh)], name="Confidence")
+                st.bar_chart(conf_series)
+            else:
+                st.info("No detection confidence data available.")
+
+        # Proximity heuristics breakdown
+        st.markdown("### Image-Space Proximity Heuristics (Visual Area %)")
+        if dets_enh:
+            prox_df = pd.DataFrame([
+                {
+                    "Object": f"{d['class_name']} #{i+1}",
+                    "Viewport Area %": d["relative_area_pct"],
+                    "Proximity Tag": d["proximity_heuristic"]
+                }
+                for i, d in enumerate(dets_enh)
+            ])
+            st.dataframe(prox_df, use_container_width=True)
+        else:
+            st.info("No objects available for proximity analysis.")
+
+
+# =========================================================
+# PAGE 5: FEATURE 4 — VIDEO ANALYSIS IMPROVEMENTS
+# =========================================================
 elif selected_page == "🎥 Video Analysis":
     st.markdown("## 🎥 Video Stream & Batch Analysis")
-    st.caption("Process multi-frame road footage through the enhancement and detection pipeline.")
+    st.caption("Frame-by-frame pipeline processing with configurable sampling interval, frame ceilings, and export.")
 
     st.markdown("""
     <div class='notice-box'>
-        ⚙️ <strong>Frame Limiter:</strong> To avoid long processing times in demo environments,
-        you can set a maximum frame ceiling. Output video is re-encoded with OpenCV.
+        ⚙️ <strong>Frame-Sampling Interval & Frame Ceilings:</strong> To prevent memory overload and long processing times on laptops,
+        configure the sampling stride and maximum frame ceiling. Output video is encoded frame-by-frame using OpenCV.
     </div>
     """, unsafe_allow_html=True)
 
@@ -556,18 +743,20 @@ elif selected_page == "🎥 Video Analysis":
             video_path_to_process = tfile.name
 
     # Video Controls
-    v_col1, v_col2, v_col3 = st.columns(3)
+    v_col1, v_col2, v_col3, v_col4 = st.columns(4)
     with v_col1:
         v_enhancement = st.selectbox(
-            "Video Enhancement Mode",
+            "Enhancement Mode",
             ["Combined Low-Light", "Gamma Correction", "CLAHE", "None (Raw)"]
         )
     with v_col2:
-        max_frames_to_process = st.slider("Max Frames to Process", min_value=10, max_value=150, value=30, step=10)
+        frame_sampling_stride = st.slider("Sampling Stride (Every Nth Frame)", min_value=1, max_value=5, value=1, help="1 = process every frame, 2 = process every 2nd frame.")
     with v_col3:
-        run_v_detection = st.checkbox("Run YOLO Detection on Frames", value=True)
+        max_frames_to_process = st.slider("Max Frames Ceiling", min_value=10, max_value=150, value=30, step=10)
+    with v_col4:
+        run_v_detection = st.checkbox("Run YOLO Detection", value=True)
 
-    if video_path_to_process and st.button("🚀 Start Video Processing Pipeline"):
+    if video_path_to_process and st.button("🚀 Start Frame-by-Frame Pipeline"):
         cap = cv2.VideoCapture(video_path_to_process)
         if not cap.isOpened():
             st.error("Failed to open video file. Ensure valid codec (H.264 / MP4V).")
@@ -578,28 +767,34 @@ elif selected_page == "🎥 Video Analysis":
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             frames_limit = min(total_frames, max_frames_to_process) if total_frames > 0 else max_frames_to_process
 
-            st.write(f"Processing up to **{frames_limit}** frames ({width}x{height} @ {fps:.1f} FPS)...")
+            st.write(f"Processing up to **{frames_limit}** frames ({width}x{height} @ {fps:.1f} FPS, Stride: {frame_sampling_stride})...")
 
             # Temporary output video file
             out_temp_path = os.path.join(tempfile.gettempdir(), f"visionhack_out_{int(time.time())}.mp4")
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            writer = cv2.VideoWriter(out_temp_path, fourcc, fps, (width, height))
+            writer = cv2.VideoWriter(out_temp_path, fourcc, fps / frame_sampling_stride, (width, height))
 
             progress_bar = st.progress(0.0)
             status_text = st.empty()
             preview_slot = st.empty()
 
             processed_count = 0
+            raw_frame_idx = 0
             t_start = time.perf_counter()
             total_dets_found = 0
 
             conf_thresh = st.session_state.get("conf_threshold", 0.25)
             selected_classes = st.session_state.get("selected_classes", None)
 
-            while cap.isOpened() and processed_count < frames_limit:
+            while cap.isOpened() and raw_frame_idx < frames_limit:
                 ret, frame = cap.read()
                 if not ret:
                     break
+
+                # Frame-sampling stride
+                if raw_frame_idx % frame_sampling_stride != 0:
+                    raw_frame_idx += 1
+                    continue
 
                 # Apply enhancement
                 if v_enhancement == "Gamma Correction":
@@ -612,17 +807,18 @@ elif selected_page == "🎥 Video Analysis":
                     proc_frame = frame.copy()
 
                 # Detection
+                frame_dets = []
                 if run_v_detection and detector.is_ready:
-                    dets = detector.detect(proc_frame, conf_threshold=conf_thresh, allowed_classes=selected_classes)
-                    total_dets_found += len(dets)
-                    final_frame = detector.draw_annotations(proc_frame, dets, show_proximity=True)
+                    frame_dets = detector.detect(proc_frame, conf_threshold=conf_thresh, allowed_classes=selected_classes)
+                    total_dets_found += len(frame_dets)
+                    final_frame = detector.draw_annotations(proc_frame, frame_dets, show_proximity=True)
                 else:
                     final_frame = proc_frame
 
                 # Overlay frame counter
                 cv2.putText(
                     final_frame,
-                    f"ADAS FRAME {processed_count+1}/{frames_limit}",
+                    f"FRAME {processed_count+1} (Dets: {len(frame_dets)})",
                     (15, 25),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
@@ -633,14 +829,15 @@ elif selected_page == "🎥 Video Analysis":
 
                 writer.write(final_frame)
                 processed_count += 1
+                raw_frame_idx += 1
 
-                # Update live preview every few frames
-                if processed_count % 3 == 0 or processed_count == frames_limit:
-                    progress_bar.progress(processed_count / frames_limit)
-                    status_text.text(f"Processed frame {processed_count} / {frames_limit}...")
+                # Live preview
+                if processed_count % 3 == 0 or raw_frame_idx >= frames_limit:
+                    progress_bar.progress(min(1.0, raw_frame_idx / frames_limit))
+                    status_text.text(f"Processed {processed_count} sampled frames (Raw frame: {raw_frame_idx}/{frames_limit})...")
                     preview_slot.image(
                         cv2.cvtColor(final_frame, cv2.COLOR_BGR2RGB),
-                        caption=f"Live Preview (Frame {processed_count})",
+                        caption=f"Live Preview (Sampled Frame {processed_count})",
                         use_container_width=True
                     )
 
@@ -648,7 +845,7 @@ elif selected_page == "🎥 Video Analysis":
             writer.release()
             elapsed = time.perf_counter() - t_start
 
-            st.success(f"Processing complete! Processed {processed_count} frames in {elapsed:.2f}s ({processed_count / max(0.001, elapsed):.1f} FPS).")
+            st.success(f"Processing complete! Exported {processed_count} frames in {elapsed:.2f}s ({processed_count / max(0.001, elapsed):.1f} FPS, {total_dets_found} cumulative detections).")
 
             # Video Download
             if os.path.exists(out_temp_path) and os.path.getsize(out_temp_path) > 0:
@@ -662,11 +859,11 @@ elif selected_page == "🎥 Video Analysis":
 
 
 # ==========================================
-# PAGE 4: DETECTION SETTINGS
+# PAGE 6: DETECTION SETTINGS
 # ==========================================
 elif selected_page == "⚙️ Detection Settings":
     st.markdown("## ⚙️ ADAS Perception & Detection Settings")
-    st.caption("Tune YOLOv8 confidence thresholds, NMS filters, and target road classes.")
+    st.caption("Tune YOLOv8 confidence thresholds, target road classes, and inference parameters.")
 
     st.markdown("<div class='adas-card'>", unsafe_allow_html=True)
     st.markdown("<div class='adas-card-title'>🎯 Confidence & Filtering</div>", unsafe_allow_html=True)
@@ -681,7 +878,6 @@ elif selected_page == "⚙️ Detection Settings":
     )
     st.session_state["conf_threshold"] = current_conf
 
-    # Class selection
     all_classes = detector.get_available_classes()
     road_class_ids = list(DEFAULT_ROAD_CLASSES.keys())
     road_class_names = [all_classes.get(cid, f"Class {cid}") for cid in road_class_ids]
@@ -700,7 +896,7 @@ elif selected_page == "⚙️ Detection Settings":
 
 
 # ==========================================
-# PAGE 5: ABOUT & METHODOLOGY
+# PAGE 7: ABOUT & METHODOLOGY
 # ==========================================
 elif selected_page == "📖 About & Methodology":
     st.markdown("## 📖 About VisionHack ADAS")
@@ -712,7 +908,7 @@ elif selected_page == "📖 About & Methodology":
         <p>
         Autonomous driving systems and level-2+ ADAS rely heavily on optical cameras for lane keeping, forward collision warnings, and pedestrian detection.
         Under low ambient illumination (night driving) and suspended atmospheric aerosols (fog/smog), optical cameras capture low-contrast, noisy images with clipped dynamic ranges.
-        Off-the-shelf deep neural networks (e.g. YOLO) often fail to detect vehicles and pedestrians due to missing edge gradients in dark regions.
+        Off-the-shelf deep neural networks (e.g. YOLO) often experience domain shift due to degraded edge gradients in dark regions.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -726,8 +922,7 @@ elif selected_page == "📖 About & Methodology":
                 When $\gamma > 1$, shadow values are amplified while preserving peak highlight values, expanding dark detail.
             </li>
             <li>
-                <strong>LAB-Space CLAHE:</strong> Traditional RGB histogram equalization distorts color hue and saturation.
-                VisionHack isolates the Lightness ($L^*$) channel in CIE $L^*a^*b^*$ space and redistributes local histograms across tile grids (e.g., $8 \\times 8$)
+                <strong>LAB-Space CLAHE:</strong> Isolates the Lightness ($L^*$) channel in CIE $L^*a^*b^*$ space and redistributes local histograms across tile grids (e.g., $8 \\times 8$)
                 with clip limits to prevent amplifying background sensor noise.
             </li>
             <li>
@@ -745,7 +940,7 @@ elif selected_page == "📖 About & Methodology":
         <div class='notice-box'>
             <strong>Non-Calibrated Proximity Disclosure:</strong><br>
             Computing real-world metric distances (in metres) from monocular 2D bounding boxes requires known camera intrinsic matrices ($f_x, f_y, c_x, c_y$),
-            extrinsic pitch angles, and flat-ground plane assumptions. Arbitrary scalar formulas (e.g. $1200 / w$) are mathematically unfounded and dangerous.<br><br>
+            extrinsic pitch angles, and flat-ground plane assumptions. Arbitrary scalar formulas are mathematically unfounded and dangerous.<br><br>
             Therefore, VisionHack ADAS displays image-space viewport area heuristics only. This software is an engineering study and is strictly <strong>NOT</strong> certified for safety-critical vehicle control or autonomous actuation.
         </div>
     </div>

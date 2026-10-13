@@ -11,25 +11,27 @@ VisionHack ADAS is a computer vision and deep learning prototype designed to enh
 
 ## 🌟 Key Features
 
-1. **Adaptive Image Enhancement**:
+1. **Original vs Enhanced Detection Comparison (High-Priority Workflow)**:
+   - Run the identical pretrained Ultralytics **YOLOv8n** model on both raw and enhanced road scenes simultaneously.
+   - Dual side-by-side annotated views with bounding boxes, labels, confidence percentages, and visual area tags.
+   - Comprehensive comparative detection tables and delta counts.
+   - Direct download buttons for enhanced images and both annotated outputs (PNG).
+
+2. **Visibility Enhancement & Statistical Quality Analysis**:
    - **Gamma Correction**: Dynamic non-linear shadow expansion via precomputed lookup tables (LUT).
-   - **LAB-Space CLAHE**: Contrast-limited adaptive histogram equalization isolated to the luminance channel ($L^*$) to prevent color distortions.
+   - **LAB-Space CLAHE**: Contrast-limited adaptive histogram equalization isolated to the luminance channel ($L^*$) to prevent chromatic distortion.
    - **Composite Low-Light Pipeline**: Bilateral edge-preserving noise suppression followed by gamma and CLAHE.
    - **Simulated Fog Mode**: Koschmieder's Law atmospheric veil simulation for evaluating pipeline robustness.
+   - Comparative metric cards and visual bar charts displaying mean luminance, RMS contrast, Laplacian sharpness variance, and relative quality heuristics.
 
-2. **Real-Time Object Detection**:
-   - Integrated with Ultralytics **YOLOv8n** for single-stage deep neural inference.
-   - Real-time road actor classification (cars, pedestrians, buses, trucks, cyclists, traffic signals).
-   - User-configurable confidence thresholds and class filtering.
-   - Side-by-side detector comparison (Original vs. Enhanced input).
+3. **Detection Analytics Dashboard**:
+   - Quantitative breakdown showing total detected objects, class frequency histograms, average detection confidence, and per-object confidence distributions.
+   - Direct comparative KPIs between raw and enhanced inferences with measurable execution latency.
 
-3. **Experimental Quality & Proximity Heuristics**:
-   - Quantitative image metrics: RMS luminance contrast, Laplacian sharpness variance, dark/saturated pixel ratios.
-   - Viewport-area proximity heuristic tags (explaining clearly that real-world metric distances require calibrated stereo/monocular camera intrinsics).
-
-4. **Multi-Media Processing**:
-   - Interactive single-image analysis with side-by-side metrics inspection and PNG exports.
-   - Frame-by-frame video processing engine with frame limiters and downloadable annotated MP4 export.
+4. **Robust Video Stream & Batch Analysis**:
+   - Frame-by-frame pipeline processing without loading entire video files into memory.
+   - Configurable frame-sampling stride (every $N^{\text{th}}$ frame) and max frame ceilings to ensure fast, responsive laptop execution.
+   - Real-time frame counter, progress indicator, and downloadable annotated MP4 video re-encoded via OpenCV.
 
 ---
 
@@ -123,21 +125,23 @@ python -m pytest tests/ -v
 
 ## 🧭 Hackathon Demo Walkthrough
 
-1. **Dashboard Overview**: Start on the overview tab to introduce the dual-stage ADAS architecture.
-2. **Image Analysis (Night Scene)**:
-   - Select the pre-bundled `Night Road Scene (Dark)`.
-   - Choose `Combined Low-Light Pipeline`.
-   - Set detection target to `Both Side-by-Side`.
-   - Highlight the contrast shift and how enhancement increases feature prominence for YOLOv8.
-3. **Image Analysis (Simulated Fog)**:
-   - Select `Simulated Fog Road Scene`.
-   - Note the Laplacian variance drop indicating haze/blur.
-   - Apply CLAHE with clip limit `3.0` to recover road boundaries.
-4. **Video Stream Analysis**:
-   - Open `Video Analysis` and click `Start Video Processing Pipeline`.
-   - Watch the live frame-by-frame processing counter and download the annotated MP4.
-5. **Methodology & Ethics**:
-   - Open `About & Methodology` to explain why uncalibrated monocular distances are avoided in favor of transparent viewport heuristics.
+1. **Dashboard Overview**: Start on the overview tab to introduce the problem space: sensor degradation in night and adverse road scenarios.
+2. **Original vs Enhanced Detection Comparison (Core Demo)**:
+   - Navigate to `⚖️ Original vs Enhanced Detection`.
+   - Select the pre-bundled `Night Road Scene (Dark)` and the `Combined Low-Light Pipeline`.
+   - Observe the dual annotated panels side by side: raw image vs enhanced image running the identical YOLOv8n detector.
+   - Review the detailed comparison table and delta count (+/- detections) while pointing out the scientific disclaimer.
+   - Click to download the enhanced image and annotated outputs.
+3. **Image Enhancement & Quality Analysis**:
+   - Open `🖼️ Image Enhancement` to demonstrate the contrast and sharpness transformations.
+   - Inspect the interactive comparison bar chart comparing mean luminance, RMS contrast, and Laplacian sharpness.
+4. **Detection Analytics Dashboard**:
+   - Open `📈 Detection Analytics` to review genuine quantitative metrics: average confidence percentages, class frequency bars, and inference latencies.
+5. **Video Stream Analysis**:
+   - Open `🎥 Video Analysis`, select `demo_road_clip.mp4`, configure the frame-sampling stride (e.g. 1 or 2), and click `Start Frame-by-Frame Pipeline`.
+   - Watch the live frame preview and download the finished MP4 video.
+6. **Methodology & Ethics**:
+   - Conclude on `About & Methodology` to explain the mathematical foundations and transparent image-space proximity heuristics.
 
 ---
 
