@@ -548,6 +548,7 @@ elif selected_page == "🖼️ Image Enhancement & Detection":
                 st.error(f"Image decode error: {e}")
     else:
         sample_options = {
+            "Rainy Night City (Real Road Scene)": "samples/rainy_night_city.png",
             "Night Road Scene (Dark)": "samples/road_night_dark.jpg",
             "Simulated Fog Road Scene": "samples/road_foggy_simulated.jpg",
             "Day Road Scene (Normal)": "samples/road_day_normal.jpg"
@@ -708,6 +709,7 @@ elif selected_page == "🔍 DINOv2 Visual Scene Search":
                 q_bgr = safe_decode_image(q_file)
         else:
             sample_choices = {
+                "Rainy Night City": "samples/rainy_night_city.png",
                 "Night Road": "samples/road_night_dark.jpg",
                 "Foggy Road": "samples/road_foggy_simulated.jpg",
                 "Day Road": "samples/road_day_normal.jpg"
@@ -776,6 +778,7 @@ elif selected_page == "✂️ SAM Masks & Object Analysis":
             sam_bgr = safe_decode_image(sam_file)
     else:
         sample_choices = {
+            "Rainy Night City": "samples/rainy_night_city.png",
             "Day Road Scene": "samples/road_day_normal.jpg",
             "Night Road Scene": "samples/road_night_dark.jpg",
             "Simulated Fog Road Scene": "samples/road_foggy_simulated.jpg"
@@ -985,7 +988,7 @@ elif selected_page == "✨ Diffusion Image Restoration":
     with c_diff_src:
         d_sample = st.selectbox(
             "Select Degraded Road Scene",
-            ["samples/road_night_dark.jpg", "samples/road_foggy_simulated.jpg", "samples/road_day_normal.jpg"]
+            ["samples/rainy_night_city.png", "samples/road_night_dark.jpg", "samples/road_foggy_simulated.jpg", "samples/road_day_normal.jpg"]
         )
     with c_diff_opt:
         st.write(f"Diffusion Engine Status: **{('Installed' if restorer.is_available else 'Optional - PyTorch CPU/GPU')}**")
@@ -1024,6 +1027,7 @@ elif selected_page == "📈 Analytics & Evaluation":
     st.caption("Verified statistical benchmarks derived genuinely from actual test pipeline runs.")
 
     sample_choices = {
+        "Rainy Night City Scene": "samples/rainy_night_city.png",
         "Night Road Scene": "samples/road_night_dark.jpg",
         "Day Road Scene": "samples/road_day_normal.jpg",
         "Simulated Fog Road Scene": "samples/road_foggy_simulated.jpg"
