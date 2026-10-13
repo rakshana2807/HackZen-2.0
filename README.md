@@ -123,10 +123,24 @@ python generate_samples.py
 This creates synthetic daylight, low-light, and simulated-fog road scenes, along with a short video clip, in the `samples/` directory. These are demonstration assets, not real-world road footage.
 
 ### 3. Run Automated Tests
-Execute the full test suite with `pytest`:
+
+#### Lightweight Test Suite (Offline / CPU / Synthetic & Mocked Inputs)
+All 22 unit tests execute completely offline without downloading any large models:
 ```bash
 python -m pytest tests/ -v
 ```
+These tests validate:
+- OpenCV enhancement pipelines, Gamma LUT, and LAB CLAHE
+- Format handling (RGBA, Grayscale, BGR)
+- Statistical image metrics (RMS contrast, Laplacian variance, dark ratio)
+- Detection image-space proximity heuristic branch conditions
+- SAM spatial IoU mask-to-box association and fallback to generic labels
+- DINOv2 embedding schema, 384D normalization, empty/corrupted index handling, and mocked cosine ranking
+- Diffusion failure diagnostics, input validation, and aspect-ratio preservation
+- Tiny video writer initialization, non-zero file creation, and reopening
+
+#### Model-Dependent Integration Tests (Optional Weights)
+If real weights (`yolov8n.pt`, `mobile_sam.pt`, `dinov2_vits14`) and optional diffusion dependencies are present, integration runs can be verified individually.
 
 ---
 
@@ -134,13 +148,13 @@ python -m pytest tests/ -v
 
 | Component / Feature | Implementation State | Verification Status | Model Weights / Resource Req. |
 | :--- | :--- | :--- | :--- |
-| **OpenCV Classical Enhancement** | ✅ Fully Implemented | ✅ 100% Tested & Verified | None (pure OpenCV/NumPy) |
-| **YOLOv8n Object Detection** | ✅ Fully Implemented | ✅ 100% Tested & Verified | `yolov8n.pt` (~6.2MB, auto-cached) |
-| **Original vs. Enhanced Comparison** | ✅ Fully Implemented | ✅ 100% Tested & Verified | None (runs in-memory) |
-| **ByteTrack Video Tracking & Trails**| ✅ Fully Implemented | ✅ 100% Tested & Verified | Integrated via Ultralytics ByteTrack |
-| **DINOv2 Visual Scene Retrieval**    | ✅ Fully Implemented | ✅ Tested (Index/Search/Empty) | Optional `dinov2_vits14` (~80MB on-demand) |
-| **MobileSAM Instance Segmentation**  | ✅ Fully Implemented | ✅ Tested (Geometry/Labels) | Optional `mobile_sam.pt` (~39MB on-demand) |
-| **Diffusion Image Restoration**      | ✅ Fully Implemented | ✅ Tested (Diagnostics/Fallback)| Optional `requirements-optional.txt` (~3.5GB) |
+| **OpenCV Classical Enhancement** | ✅ Fully Implemented | ✅ Verified via 8 unit tests | None (pure OpenCV / NumPy) |
+| **YOLOv8n Object Detection** | ✅ Fully Implemented | ✅ Verified with `yolov8n.pt` & synthetic frames | `yolov8n.pt` (~6.2MB, auto-cached) |
+| **Original vs. Enhanced Comparison** | ✅ Fully Implemented | ✅ Verified via automated delta tests | Runs in-memory |
+| **ByteTrack Video Tracking & Trails**| ✅ Fully Implemented | ✅ Verified tracker formatting & video roundtrip | Ultralytics tracker module |
+| **DINOv2 Visual Scene Retrieval**    | ✅ Fully Implemented | ✅ Tested via schema & mocked ranker | Optional `dinov2_vits14` (~80MB on-demand) |
+| **MobileSAM Instance Segmentation**  | ✅ Fully Implemented | ✅ Tested via IoU matching & geometry | Optional `mobile_sam.pt` (~39MB on-demand) |
+| **Diffusion Image Restoration**      | ✅ Fully Implemented | ✅ Tested via diagnostics & fallback | Optional `requirements-optional.txt` (~3.5GB) |
 
 ---
 

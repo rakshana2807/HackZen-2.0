@@ -105,13 +105,21 @@ class Segmenter:
             return segmentations
 
         res = results[0]
-        if res.masks is None or len(res.masks) == 0:
+        if res.masks is None:
             return segmentations
+        try:
+            if len(res.masks) == 0:
+                return segmentations
+        except TypeError:
+            pass
 
         raw_masks = res.masks.data.cpu().numpy()  # shape (N, H, W)
+        if len(raw_masks) == 0:
+            return segmentations
 
+        # Extract binary masks and compute bounding boxes for each mask
+        mask_entries = []
         for i, mask_2d in enumerate(raw_masks):
-            # Resize binary mask to image shape if necessary
             if mask_2d.shape[:2] != (h, w):
                 mask_bool = cv2.resize(mask_2d.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST) > 0
             else:
@@ -120,45 +128,84 @@ class Segmenter:
             area_px = int(np.sum(mask_bool))
             area_pct = round((area_px / total_pixels) * 100.0, 2)
 
-            # Associate label and box only when spatial correspondence is genuinely valid
-            label = f"Mask #{i+1}"
-            assigned_box = None
+            y_idx, x_idx = np.where(mask_bool)
+            if len(x_idx) > 0 and len(y_idx) > 0:
+                mbound = [int(np.min(x_idx)), int(np.min(y_idx)), int(np.max(x_idx)), int(np.max(y_idx))]
+            else:
+                mbound = None
 
-            if bboxes and detection_labels and i < len(bboxes) and i < len(detection_labels):
-                prompt_box = bboxes[i]
-                # Validate spatial correspondence: check if mask pixels fall inside or near prompt box
-                y_idx, x_idx = np.where(mask_bool)
-                if len(x_idx) > 0 and len(y_idx) > 0:
-                    mx1, mx2 = int(np.min(x_idx)), int(np.max(x_idx))
-                    my1, my2 = int(np.min(y_idx)), int(np.max(y_idx))
-                    px1, py1, px2, py2 = prompt_box
+            mask_entries.append({
+                "mask_id": i + 1,
+                "mask": mask_bool,
+                "area_px": area_px,
+                "area_pct": area_pct,
+                "mbound": mbound
+            })
 
-                    # Calculate Intersection over Union (IoU) of bounding boxes
+        # Calculate spatial overlap matrix between all masks and all detection boxes
+        # Do NOT assume i-th mask corresponds to i-th detection
+        matched_labels = {}
+        matched_boxes = {}
+
+        if bboxes and detection_labels and len(bboxes) > 0 and len(detection_labels) > 0:
+            assigned_det_indices = set()
+
+            for m_idx, m_ent in enumerate(mask_entries):
+                mbound = m_ent["mbound"]
+                if mbound is None or m_ent["area_px"] == 0:
+                    continue
+
+                mx1, my1, mx2, my2 = mbound
+                mask_box_area = max(1, (mx2 - mx1) * (my2 - my1))
+
+                best_iou = 0.0
+                best_det_idx = -1
+
+                for d_idx, pbox in enumerate(bboxes):
+                    if d_idx in assigned_det_indices:
+                        continue
+
+                    px1, py1, px2, py2 = pbox
                     ix1 = max(mx1, px1)
                     iy1 = max(my1, py1)
                     ix2 = min(mx2, px2)
                     iy2 = min(my2, py2)
+
                     inter_area = max(0, ix2 - ix1) * max(0, iy2 - iy1)
-                    mask_box_area = max(1, (mx2 - mx1) * (my2 - my1))
+                    if inter_area == 0:
+                        continue
+
                     prompt_box_area = max(1, (px2 - px1) * (py2 - py1))
                     iou = inter_area / float(mask_box_area + prompt_box_area - inter_area)
+                    overlap_ratio = inter_area / mask_box_area
 
-                    # Only link detection label if significant spatial correspondence exists
-                    if iou > 0.2 or (inter_area / mask_box_area) > 0.5:
-                        label = detection_labels[i]
-                        assigned_box = prompt_box
-                    else:
-                        label = f"Mask #{i+1} (Unassociated)"
-                else:
-                    label = f"Mask #{i+1} (Empty)"
+                    # Find best match above documented threshold (IoU > 0.25 or overlap > 0.5)
+                    score = max(iou, overlap_ratio * 0.8)
+                    if score > best_iou:
+                        best_iou = score
+                        best_det_idx = d_idx
+
+                if best_iou > 0.25 and best_det_idx >= 0 and best_det_idx < len(detection_labels):
+                    matched_labels[m_idx] = detection_labels[best_det_idx]
+                    matched_boxes[m_idx] = bboxes[best_det_idx]
+                    assigned_det_indices.add(best_det_idx)
+
+        segmentations: List[Dict[str, Any]] = []
+        for m_idx, m_ent in enumerate(mask_entries):
+            if m_ent["mbound"] is None or m_ent["area_px"] == 0:
+                label = f"Mask #{m_ent['mask_id']} (Empty)"
+            elif m_idx in matched_labels:
+                label = matched_labels[m_idx]
+            else:
+                label = f"Mask #{m_ent['mask_id']}"
 
             segmentations.append({
-                "mask_id": i + 1,
+                "mask_id": m_ent["mask_id"],
                 "label": label,
-                "mask": mask_bool,
-                "area_px": area_px,
-                "area_pct": area_pct,
-                "box": assigned_box
+                "mask": m_ent["mask"],
+                "area_px": m_ent["area_px"],
+                "area_pct": m_ent["area_pct"],
+                "box": matched_boxes.get(m_idx, None)
             })
 
         return segmentations

@@ -85,3 +85,45 @@ def test_video_generator_and_frame_sampling():
 
     cap.release()
     assert sampled_frames == 5
+
+
+def test_tiny_video_writer_and_reader_roundtrip(tmp_path):
+    """Verify VideoWriter initialization, non-zero file creation, and reopening with frame count check."""
+    output_video_path = str(tmp_path / "tiny_test.mp4")
+    w, h, fps = 64, 64, 10
+    num_frames = 5
+
+    # Try mp4v fourcc
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    writer = cv2.VideoWriter(output_video_path, fourcc, fps, (w, h))
+
+    if not writer.isOpened():
+        # Fall back to alternative or skip if environment codecs are missing
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        output_video_path = str(tmp_path / "tiny_test.avi")
+        writer = cv2.VideoWriter(output_video_path, fourcc, fps, (w, h))
+        if not writer.isOpened():
+            pytest.skip("Environment does not provide compatible video encoder for VideoWriter")
+
+    for i in range(num_frames):
+        frame = np.full((h, w, 3), i * 40, dtype=np.uint8)
+        writer.write(frame)
+    writer.release()
+
+    assert os.path.exists(output_video_path), "Exported video file was not created"
+    assert os.path.getsize(output_video_path) > 0, "Exported video file is empty (0 bytes)"
+
+    # Verify video can be reopened and read back
+    cap = cv2.VideoCapture(output_video_path)
+    assert cap.isOpened(), "Could not reopen generated video"
+    read_frames = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        assert frame.shape == (h, w, 3)
+        read_frames += 1
+    cap.release()
+
+    assert read_frames == num_frames, f"Expected {num_frames} frames, but read {read_frames}"
+

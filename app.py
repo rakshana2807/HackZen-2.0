@@ -753,23 +753,35 @@ elif selected_page == "🏎️ Video Object Tracking":
         if not cap.isOpened():
             st.error("Failed to open video source.")
         else:
-            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if fps is None or np.isnan(fps) or fps <= 0:
+                fps = 25.0
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             total_vid_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            frames_to_run = min(total_vid_frames, max_tk_frames) if total_vid_frames > 0 else max_tk_frames
 
-            out_tk_path = os.path.join(tempfile.gettempdir(), f"visionhack_track_{int(time.time())}.mp4")
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            writer = cv2.VideoWriter(out_tk_path, fourcc, fps / tk_stride, (width, height))
+            if width <= 0 or height <= 0:
+                st.error("Invalid video dimensions detected. Cannot process video.")
+                cap.release()
+            else:
+                frames_to_run = min(total_vid_frames, max_tk_frames) if total_vid_frames > 0 else max_tk_frames
 
-            p_bar = st.progress(0.0)
-            status_txt = st.empty()
-            prev_slot = st.empty()
+                out_tk_path = os.path.join(tempfile.gettempdir(), f"visionhack_track_{int(time.time())}.mp4")
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                effective_fps = max(1.0, fps / tk_stride)
+                writer = cv2.VideoWriter(out_tk_path, fourcc, effective_fps, (width, height))
 
-            t_start = time.perf_counter()
-            processed_f = 0
-            raw_f = 0
+                if not writer.isOpened():
+                    st.error("Could not initialize video encoder for output export. Check system codecs.")
+                    cap.release()
+                else:
+                    p_bar = st.progress(0.0)
+                    status_txt = st.empty()
+                    prev_slot = st.empty()
+
+                    t_start = time.perf_counter()
+                    processed_f = 0
+                    raw_f = 0
 
             while cap.isOpened() and raw_f < frames_to_run:
                 ret, frame = cap.read()

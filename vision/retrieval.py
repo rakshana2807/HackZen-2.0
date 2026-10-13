@@ -176,18 +176,40 @@ class SceneRetrievalEngine:
         if not self.gallery:
             return []
 
+        if query_bgr is None or not isinstance(query_bgr, np.ndarray) or query_bgr.size == 0:
+            raise ValueError("Query image must be a non-empty numpy array.")
+
         query_emb = self.extract_embedding(query_bgr)
+        # Ensure query embedding is valid and finite
+        if not np.isfinite(query_emb).all():
+            return []
+
+        q_norm = np.linalg.norm(query_emb)
+        if q_norm > 0:
+            query_emb = query_emb / q_norm
 
         results = []
         for item in self.gallery:
-            target_emb = np.array(item["embedding"], dtype=np.float32)
-            # Both embeddings are L2 normalized, so dot product == cosine similarity
-            sim = float(np.dot(query_emb, target_emb))
-            results.append({
-                "path": item["path"],
-                "name": item["name"],
-                "similarity": round(sim, 4)
-            })
+            try:
+                target_emb = np.array(item["embedding"], dtype=np.float32)
+                if target_emb.shape[0] != 384 or not np.isfinite(target_emb).all():
+                    continue
+
+                t_norm = np.linalg.norm(target_emb)
+                if t_norm > 0:
+                    target_emb = target_emb / t_norm
+
+                sim = float(np.dot(query_emb, target_emb))
+                if np.isnan(sim) or np.isinf(sim):
+                    continue
+
+                results.append({
+                    "path": item["path"],
+                    "name": item["name"],
+                    "similarity": round(float(np.clip(sim, -1.0, 1.0)), 4)
+                })
+            except Exception:
+                continue
 
         # Sort descending by similarity
         results.sort(key=lambda x: x["similarity"], reverse=True)
