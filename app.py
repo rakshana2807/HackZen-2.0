@@ -243,52 +243,57 @@ header[data-testid="stHeader"] {
     background: transparent !important;
     color: #f8fafc !important;
     z-index: 99 !important;
-    height: 3rem !important;
-    pointer-events: none !important; /* Let clicks pass through except on interactive children */
+    pointer-events: none !important;
 }
 
-/* Hide deploy button, hamburger menu and top decoration */
+/* Ensure the toolbar container itself is visible so stExpandSidebarButton is displayed */
+header[data-testid="stHeader"] [data-testid="stToolbar"] {
+    display: flex !important;
+    visibility: visible !important;
+    background: transparent !important;
+}
+
+/* Hide deploy button, developer menu, and hamburger options on the right side */
 header[data-testid="stHeader"] .stAppDeployButton,
-header[data-testid="stHeader"] [data-testid="stToolbar"],
+header[data-testid="stHeader"] [data-testid="stToolbarActions"],
 header[data-testid="stHeader"] #MainMenu,
+header[data-testid="stHeader"] [data-testid="manage-app-button"],
 div[data-testid="stDecoration"] {
     display: none !important;
     visibility: hidden !important;
 }
 
-/* Ensure the sidebar open/close toggle buttons are ALWAYS clickable and styled */
+/* The open/expand sidebar button (when sidebar is closed) and close button (inside sidebar) */
+[data-testid="stExpandSidebarButton"],
 [data-testid="stSidebarCollapseButton"],
-[data-testid="collapsedControl"],
-[data-testid="stSidebarCollapsedControl"],
-header[data-testid="stHeader"] button,
-button[kind="header"] {
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] {
     pointer-events: auto !important;
     visibility: visible !important;
     display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
     color: #38bdf8 !important;
-    background: rgba(15, 23, 42, 0.85) !important;
-    border: 1px solid rgba(56, 189, 248, 0.35) !important;
+    background: rgba(15, 23, 42, 0.9) !important;
+    border: 1px solid rgba(56, 189, 248, 0.4) !important;
     border-radius: 8px !important;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+    padding: 6px !important;
+    margin: 6px !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5) !important;
+    cursor: pointer !important;
     z-index: 999999 !important;
 }
 
-[data-testid="stSidebarCollapseButton"]:hover,
-[data-testid="collapsedControl"]:hover,
-[data-testid="stSidebarCollapsedControl"]:hover,
-button[kind="header"]:hover {
-    background: rgba(56, 189, 248, 0.2) !important;
+[data-testid="stExpandSidebarButton"] button,
+[data-testid="stSidebarCollapseButton"] button {
+    color: #38bdf8 !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+[data-testid="stExpandSidebarButton"]:hover,
+[data-testid="stSidebarCollapseButton"]:hover {
+    background: rgba(56, 189, 248, 0.25) !important;
     border-color: #38bdf8 !important;
-    color: #ffffff !important;
-}
-
-/* Keep collapsed control button pinned at top left so it never disappears */
-[data-testid="collapsedControl"],
-[data-testid="stSidebarCollapsedControl"] {
-    position: fixed !important;
-    top: 0.75rem !important;
-    left: 0.75rem !important;
-    z-index: 999999 !important;
 }
 
 .main .block-container,
